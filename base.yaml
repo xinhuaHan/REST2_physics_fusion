@@ -1,0 +1,81 @@
+project:
+  name: rest2-physics-fusion
+  seed: 42
+
+site:
+  latitude: 29.919
+  longitude: 100.641
+  altitude_m: 0.0
+  timezone: Asia/Shanghai
+
+physics:
+  aod700_default: 0.08
+  pwat_to_cm: 0.1
+  clear_sky_backend: auto
+  sky_index_max: 2.0
+
+data:
+  timestamp_column: dtime
+  target_column: target_ghi_5min
+  window_steps: 16
+  feature_columns:
+    - input_ghi
+    - temp_c
+    - wind_speed
+    - wind_dir
+    - precip
+    - pwv_cm
+    - temp_c_is_observed
+    - wind_speed_is_observed
+    - wind_dir_is_observed
+    - precip_is_observed
+    - pwv_cm_is_observed
+    - pressure_pa_is_observed
+    - aod700_is_observed
+    - weather_is_joined
+  physics_features:
+    - ghi_clear_target
+    - dni_clear_target
+    - dhi_clear_target
+    - mu0_target
+    - apparent_zenith
+    - dni_extra
+    - pressure_pa
+    - pwv_cm
+    - aod700
+    - t_clr_dd
+    - clear_sky_index_last
+    - smart_persistence_ghi
+    - clear_sky_index_current
+    - weather_attenuation_prior
+    - weather_adjusted_clear_sky_ghi
+    - clear_sky_residual_last
+    - clear_sky_gap
+    - ghi_clear_horizon_5min
+    - ghi_clear_horizon_4h
+    - ghi_clear_horizon_1d
+    - mu0_horizon_5min
+    - mu0_horizon_4h
+    - mu0_horizon_1d
+    - weather_adjusted_clear_sky_ghi_horizon_5min
+    - weather_adjusted_clear_sky_ghi_horizon_4h
+    - weather_adjusted_clear_sky_ghi_horizon_1d
+
+model:
+  serial_hidden: 64
+  weather_hidden: 32
+  physics_hidden: 64
+  fusion_hidden: 128
+  dropout: 0.1
+  use_rest2_calibration: false
+  use_weather_prior_fusion: false
+  prior_weight_l1: 0.0
+  architecture: clear_sky_weather_fusion
+
+training:
+  batch_size: 32
+  epochs: 3
+  lr: 0.001
+  weight_decay: 0.00001
+  device: cpu
+  output_dir: outputs/checkpoints
