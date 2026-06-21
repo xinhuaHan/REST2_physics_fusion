@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rest2-physics-fusion"
+version = "0.1.0"
+description = "REST2-like clear-sky physics priors for serial + physics PV forecasting."
+requires-python = ">=3.8"
+dependencies = [
+  "numpy",
+  "pandas",
+  "pyyaml",
+  "torch",
+  "openpyxl",
+  "pvlib",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
