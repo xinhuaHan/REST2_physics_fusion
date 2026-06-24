@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pattern", default="train_*.csv")
     parser.add_argument("--datasets", nargs="*", default=None)
     parser.add_argument("--max-datasets", type=int, default=None)
+    parser.add_argument(
+        "--station-only",
+        action="store_true",
+        help="Only keep model_ready CSVs whose source_type looks like station data.",
+    )
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--target-columns", nargs="*", default=None)
@@ -61,6 +66,7 @@ def discover_csvs(
     datasets: list[str] | None,
     max_datasets: int | None,
     csv_files: list[str] | None = None,
+    station_only: bool = False,
 ) -> list[Path]:
     if csv_files:
         files = []
@@ -77,11 +83,22 @@ def discover_csvs(
     if datasets:
         wanted = {name if name.endswith(".csv") else f"{name}.csv" for name in datasets}
         files = [path for path in files if path.name in wanted]
+    if station_only:
+        files = [path for path in files if is_station_model_ready_csv(path)]
     if max_datasets is not None:
         files = files[: max(0, max_datasets)]
     if not files:
         raise FileNotFoundError(f"No CSV files found in {csv_dir} with pattern={pattern!r}")
     return files
+
+
+def is_station_model_ready_csv(path: Path) -> bool:
+    try:
+        sample = pd.read_csv(path, usecols=["source_type"], nrows=20)
+    except Exception:
+        return False
+    values = sample["source_type"].dropna().astype(str).str.lower()
+    return bool(values.str.contains("station").any())
 
 
 def train_and_eval_one(
@@ -213,7 +230,14 @@ def main() -> None:
     target_columns = args.target_columns or [cfg.get("data", {}).get("target_column", "target_ghi_5min")]
     seeds = args.seeds or [int(cfg.get("project", {}).get("seed", 42))]
 
-    csv_files = discover_csvs(csv_dir, args.pattern, args.datasets, args.max_datasets, args.csv_files)
+    csv_files = discover_csvs(
+        csv_dir,
+        args.pattern,
+        args.datasets,
+        args.max_datasets,
+        args.csv_files,
+        station_only=args.station_only,
+    )
     output_root.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, object]] = []
     variant_names = args.variants or [
