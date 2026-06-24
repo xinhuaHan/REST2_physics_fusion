@@ -34,6 +34,8 @@ rest2_physics_fusion/
     train.py                           # 单模型训练
     evaluate.py                        # 评估 checkpoint
     export_predictions.py              # 导出预测诊断 CSV
+    export_selected_predictions.py      # 批量导出 model_selection 选中模型的预测 CSV
+    evaluate_pooled_predictions.py      # 跨站点 pooled / macro 综合评估
     export_physics_vectors.py          # 导出物理向量，方便接入 PVMMOE 等外部融合模型
   src/
     rest2_physics_fusion/
@@ -302,6 +304,14 @@ C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\run_dat
 ```
 
 一句话总结：`excel_to_model_ready.py` 是真实 Excel 到训练 CSV 的一键入口；`build_physics_csv.py` 只用于单独检查物理特征。
+
+如果用于真实电站训练，建议只导出站点级训练表：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\excel_to_model_ready.py --input-dir "C:\Users\ADMIN\Desktop\新建文件夹" --model-ready-output-dir data\real_station_model_ready --enriched-output-dir data\real_station_enriched --physics-output-dir outputs\real_station_physics_csv --latitude 29.919 --longitude 100.641 --altitude-m 0.0 --timezone Asia/Shanghai --clear-sky-backend auto --station-only
+```
+
+这时天气历史文件仍会被读取并 join 到站点数据里，但不会把 `solar_history / forecast_4h / forecast_1d` 当成独立训练任务。
 
 ## 从 Folsom CSV 转成训练数据
 
@@ -595,6 +605,12 @@ rest2_validation_validity = poor_for_rest2_validation
 C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\run_dataset_pipeline.py --config configs\base.yaml --csv-dir data\real_model_ready --csv-files your_real_data.csv --output-root outputs\pipeline_real --target-columns target_ghi_5min target_ghi_4h target_ghi_1d --seeds 42 43 44 45 46 --variants baseline rest2_calibrated weather_prior weather_prior_rest2
 ```
 
+真实电站数据更推荐只跑站点级 CSV：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\run_dataset_pipeline.py --config configs\base.yaml --csv-dir data\real_station_model_ready --station-only --output-root outputs\pipeline_real_station --target-columns target_ghi_4h target_ghi_1d --seeds 42 43 44 45 46 --variants baseline physics_feature_only clear_sky_power_prior weather_prior_weak weather_prior rest2_calibrated weather_prior_rest2 --train-selected
+```
+
 这条命令会自动完成：
 
 ```text
@@ -780,6 +796,37 @@ diagnostic_compare.csv
 diagnostic_summary_overall.csv
 diagnostic_summary_segments.csv
 diagnostic_rest2_calibration.csv
+```
+
+## 第 8.5 步：跨站点综合评估
+
+真实电站数据应先形成站点级 `model_ready`：
+
+```text
+解放站点观测 + solar_history/forecast 辅助特征 -> train_jiefang_station.csv
+庆达站点观测 + solar_history/forecast 辅助特征 -> train_qingda_station.csv
+```
+
+然后分别训练/预测每个站点，最后综合评估。不要把 `solar_history / forecast_4h / forecast_1d` 当作平行训练数据集。
+
+如果 pipeline 已经使用 `--train-selected` 训练完选中模型，可以批量导出预测：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\export_selected_predictions.py --model-selection-csv outputs\pipeline_real_station\model_selection.csv --csv-dir data\real_station_model_ready --checkpoint-root outputs\pipeline_real_station\selected_models --output-dir outputs\pipeline_real_station\selected_predictions
+```
+
+再做综合评估：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\evaluate_pooled_predictions.py --prediction-csvs outputs\pipeline_real_station\selected_predictions\jiefang_station_target_ghi_4h_baseline_predictions.csv outputs\pipeline_real_station\selected_predictions\qingda_station_target_ghi_4h_baseline_predictions.csv --dataset-names jiefang qingda --output-dir outputs\pipeline_real_station\pooled_eval_4h
+```
+
+输出三类结果：
+
+```text
+per_station_metrics.csv     # 每个站点单独 MAE/RMSE
+pooled_metrics.csv          # 合并所有测试样本后的总体 MAE/RMSE
+macro_metrics.csv           # 各站点指标等权平均，避免样本多的站点支配结论
 ```
 
 ## 第 9 步：导出物理向量给 PVMMOE
