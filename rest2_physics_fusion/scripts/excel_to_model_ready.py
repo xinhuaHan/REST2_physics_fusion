@@ -94,6 +94,11 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(EXCEL_SPECS),
         help="Subset of known Excel sources to convert.",
     )
+    parser.add_argument(
+        "--station-only",
+        action="store_true",
+        help="Only export station-level model_ready CSVs. Weather history is still loaded as an auxiliary source.",
+    )
     return parser.parse_args()
 
 
@@ -192,15 +197,22 @@ def main() -> None:
         SiteConfig(args.latitude, args.longitude, args.altitude_m, args.timezone),
         clear_sky_backend=args.clear_sky_backend,
     )
+    source_keys = list(args.sources)
+    if args.station_only:
+        source_keys = [
+            key
+            for key in source_keys
+            if "station" in str(EXCEL_SPECS[key].get("source_type", "")).lower()
+        ]
 
     frames = {
         key: read_excel(input_dir, EXCEL_SPECS[key]["file_name"])
-        for key in set(args.sources) | {"solar_history"}
+        for key in set(source_keys) | {"solar_history"}
         if key in EXCEL_SPECS
     }
 
     outputs = []
-    for key in args.sources:
+    for key in source_keys:
         spec = EXCEL_SPECS[key]
         raw = build_source_frame(
             key=key,
