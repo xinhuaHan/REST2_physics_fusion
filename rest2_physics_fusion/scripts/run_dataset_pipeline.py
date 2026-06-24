@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pattern", default="train_*.csv")
     parser.add_argument("--datasets", nargs="*", default=None)
     parser.add_argument("--max-datasets", type=int, default=None)
+    parser.add_argument(
+        "--station-only",
+        action="store_true",
+        help="Only run station-level model_ready CSVs; auxiliary weather/forecast CSVs are ignored.",
+    )
     parser.add_argument("--output-root", default=str(ROOT / "outputs" / "dataset_pipeline"))
     parser.add_argument("--target-columns", nargs="*", default=None)
     parser.add_argument("--seeds", nargs="*", type=int, default=None)
@@ -289,7 +294,14 @@ def main() -> None:
 
     target_columns = args.target_columns or [cfg.get("data", {}).get("target_column", "target_ghi_5min")]
     seeds = args.seeds or [int(cfg.get("project", {}).get("seed", 42))]
-    csv_files = discover_csvs(csv_dir, args.pattern, args.datasets, args.max_datasets, args.csv_files)
+    csv_files = discover_csvs(
+        csv_dir,
+        args.pattern,
+        args.datasets,
+        args.max_datasets,
+        args.csv_files,
+        station_only=args.station_only,
+    )
 
     output_root.mkdir(parents=True, exist_ok=True)
     validation = validate_model_ready_csvs(csv_files, target_columns)
