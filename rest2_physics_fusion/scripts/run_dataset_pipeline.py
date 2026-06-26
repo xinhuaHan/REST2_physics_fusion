@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from analyze_ablation import add_decisions, build_model_selection, write_model_s
 from diagnose_physics_consistency import make_work_frame, summarize_frame, summarize_segments
 from rest2_physics_fusion.data.schema import DataSchema, validate_columns
 from rest2_physics_fusion.training.model_selection import MODEL_VARIANTS, dataset_key, resolve_model_variant
+from rest2_physics_fusion.utils.logging_utils import setup_logger
 from run_ablation import build_summary, discover_csvs, load_config, train_and_eval_one
 
 
@@ -77,10 +79,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-ablation", action="store_true")
     parser.add_argument("--skip-analysis", action="store_true")
     parser.add_argument("--train-selected", action="store_true")
+    parser.add_argument("--make-plots", action="store_true", help="Generate visualization PNGs after the pipeline finishes.")
     parser.add_argument("--day-clear-threshold", type=float, default=20.0)
     parser.add_argument("--upper-bound-tolerance", type=float, default=1.15)
     parser.add_argument("--night-target-threshold", type=float, default=5.0)
     return parser.parse_args()
+
+
+def log_message(logger, message: str) -> None:
+    if logger is None:
+        print(message)
+    else:
+        logger.info(message)
 
 
 def resolve_path(path: str | Path) -> Path:
@@ -170,6 +180,7 @@ def run_ablation_matrix(
     cfg: dict,
     seeds: list[int],
     variants: list[str],
+    logger=None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     output_root.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, object]] = []
@@ -183,9 +194,10 @@ def run_ablation_matrix(
             for seed in seeds:
                 for model_type, variant in variant_defs:
                     run_dir = output_root / key / target_column / f"seed_{seed}" / model_type
-                    print(
+                    log_message(
+                        logger,
                         f"dataset={csv_path.name} target_column={target_column} "
-                        f"seed={seed} model_type={model_type} output_dir={run_dir}"
+                        f"seed={seed} model_type={model_type} output_dir={run_dir}",
                     )
                     results.append(
                         train_and_eval_one(
@@ -209,7 +221,13 @@ def run_ablation_matrix(
     return results_df, summary_df
 
 
-def run_decision_analysis(summary_df: pd.DataFrame, results_path: Path, output_root: Path, args: argparse.Namespace) -> pd.DataFrame:
+def run_decision_analysis(
+    summary_df: pd.DataFrame,
+    results_path: Path,
+    output_root: Path,
+    args: argparse.Namespace,
+    logger=None,
+) -> pd.DataFrame:
     analysis_args = SimpleNamespace(
         min_mae_gain=0.5,
         min_mae_win_rate=0.6,
@@ -236,11 +254,14 @@ def run_decision_analysis(summary_df: pd.DataFrame, results_path: Path, output_r
     selection = build_model_selection(decisions, report_args)
     selection.to_csv(output_root / "model_selection.csv", index=False, encoding="utf-8-sig")
     write_model_selection_yaml(selection, output_root / "model_selection.yaml")
-    print(f"results_csv={results_path}")
-    print(f"summary_csv={output_root / 'ablation_summary.csv'}")
-    print(f"decisions_csv={output_root / 'ablation_decisions.csv'}")
-    print(f"model_selection_csv={output_root / 'model_selection.csv'}")
-    print(decisions[["dataset", "target_column", "comparison_model_type", "mae_gain", "rmse_gain", "candidate_win_rate_mae", "decision"]].to_string(index=False))
+    log_message(logger, f"results_csv={results_path}")
+    log_message(logger, f"summary_csv={output_root / 'ablation_summary.csv'}")
+    log_message(logger, f"decisions_csv={output_root / 'ablation_decisions.csv'}")
+    log_message(logger, f"model_selection_csv={output_root / 'model_selection.csv'}")
+    log_message(
+        logger,
+        "\n" + decisions[["dataset", "target_column", "comparison_model_type", "mae_gain", "rmse_gain", "candidate_win_rate_mae", "decision"]].to_string(index=False),
+    )
     return selection
 
 
@@ -250,6 +271,7 @@ def train_selected_models(
     output_root: Path,
     cfg: dict,
     seed: int,
+    logger=None,
 ) -> pd.DataFrame:
     csv_by_name = {path.name: path for path in csv_files}
     csv_by_key = {dataset_key(path): path for path in csv_files}
@@ -299,11 +321,26 @@ def train_selected_models(
     return trained
 
 
+def make_pipeline_plots(output_root: Path) -> None:
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "visualize_outputs.py"),
+        "--output-root",
+        str(output_root),
+    ]
+    subprocess.run(command, check=True)
+
+
 def main() -> None:
     args = parse_args()
     config_path = resolve_path(args.config)
     csv_dir = resolve_path(args.csv_dir)
     output_root = resolve_path(args.output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
+    logger = setup_logger("rest2_pipeline", output_root / "pipeline.log")
+    logger.info("pipeline_start")
+    logger.info(f"config={config_path}")
+    logger.info(f"csv_dir={csv_dir}")
     cfg = load_config(config_path)
     if args.epochs is not None:
         cfg["training"]["epochs"] = int(args.epochs)
@@ -321,15 +358,14 @@ def main() -> None:
         station_only=args.station_only,
     )
 
-    output_root.mkdir(parents=True, exist_ok=True)
     validation = validate_model_ready_csvs(csv_files, target_columns)
     validation.to_csv(output_root / "schema_validation.csv", index=False, encoding="utf-8-sig")
-    print(f"schema_validation_csv={output_root / 'schema_validation.csv'}")
+    log_message(logger, f"schema_validation_csv={output_root / 'schema_validation.csv'}")
 
     if not args.skip_physics_diagnostics:
         physics_dir = output_root / "physics_consistency"
         run_physics_diagnostics(csv_files, target_columns, physics_dir, args)
-        print(f"physics_consistency_summary={physics_dir / 'physics_consistency_summary.csv'}")
+        log_message(logger, f"physics_consistency_summary={physics_dir / 'physics_consistency_summary.csv'}")
 
     selection = pd.DataFrame()
     if not args.skip_ablation:
@@ -340,12 +376,13 @@ def main() -> None:
             cfg,
             seeds,
             args.variants,
+            logger=logger,
         )
         if not args.skip_analysis:
-            selection = run_decision_analysis(summary_df, output_root / "ablation_results.csv", output_root, args)
+            selection = run_decision_analysis(summary_df, output_root / "ablation_results.csv", output_root, args, logger=logger)
         else:
-            print(f"results_csv={output_root / 'ablation_results.csv'}")
-            print(f"summary_csv={output_root / 'ablation_summary.csv'}")
+            log_message(logger, f"results_csv={output_root / 'ablation_results.csv'}")
+            log_message(logger, f"summary_csv={output_root / 'ablation_summary.csv'}")
 
     if args.train_selected:
         if selection.empty:
@@ -353,9 +390,14 @@ def main() -> None:
             if not selection_path.exists():
                 raise FileNotFoundError("Cannot --train-selected without model_selection.csv. Run analysis first.")
             selection = pd.read_csv(selection_path)
-        trained = train_selected_models(selection, csv_files, output_root / "selected_models", cfg, seeds[0])
-        print(f"selected_model_results={output_root / 'selected_models' / 'selected_model_results.csv'}")
-        print(trained.to_string(index=False))
+        trained = train_selected_models(selection, csv_files, output_root / "selected_models", cfg, seeds[0], logger=logger)
+        log_message(logger, f"selected_model_results={output_root / 'selected_models' / 'selected_model_results.csv'}")
+        log_message(logger, "\n" + trained.to_string(index=False))
+
+    if args.make_plots:
+        make_pipeline_plots(output_root)
+        log_message(logger, f"figures_dir={output_root / 'figures'}")
+    logger.info("pipeline_done")
 
 
 if __name__ == "__main__":
