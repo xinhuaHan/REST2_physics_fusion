@@ -639,12 +639,20 @@ promote_candidates.csv
 watch_candidates.csv
 model_selection.csv
 model_selection.yaml
+pipeline.log
+figures/
 ```
 
 如果希望 pipeline 在生成 `model_selection.csv` 后，继续自动训练最终选择的模型，加上：
 
 ```powershell
 --train-selected
+```
+
+如果希望同时生成可视化图，加上：
+
+```powershell
+--make-plots
 ```
 
 完整命令：
@@ -657,6 +665,12 @@ C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\run_dat
 
 ```text
 outputs/pipeline_real/selected_models/
+```
+
+训练曲线、ablation 对比和决策统计图会写到：
+
+```text
+outputs/pipeline_real/figures/
 ```
 
 ## 第 4 步：只替换 CSV 文件名
@@ -1001,6 +1015,12 @@ C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\evaluat
 
 ```powershell
 C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\export_predictions.py --checkpoint outputs\checkpoints_weather_prior\best.pt --csv data\mock_model_ready\train_jiefang_station.csv --output outputs\diagnostics\weather_prior_predictions.csv
+```
+
+单独生成可视化：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\visualize_outputs.py --output-root outputs\pipeline_real --prediction-csvs outputs\diagnostics\weather_prior_predictions.csv --pooled-dir outputs\pipeline_real\pooled_eval_4h
 ```
 
 导出物理向量：
