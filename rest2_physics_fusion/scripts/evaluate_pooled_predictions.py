@@ -20,13 +20,34 @@ def parse_args() -> argparse.Namespace:
 def regression_metrics(frame: pd.DataFrame) -> dict[str, float]:
     error = pd.to_numeric(frame["prediction"], errors="coerce") - pd.to_numeric(frame["target"], errors="coerce")
     error = error.dropna()
+    target = pd.to_numeric(frame["target"], errors="coerce").dropna()
+    y_max = float(target.max()) if len(target) else float("nan")
     if len(error) == 0:
-        return {"rows": 0, "mae": float("nan"), "rmse": float("nan"), "bias": float("nan")}
+        return {
+            "rows": 0,
+            "mae": float("nan"),
+            "rmse": float("nan"),
+            "nmae": float("nan"),
+            "nrmse": float("nan"),
+            "bias": float("nan"),
+            "y_max": y_max,
+        }
+    mae = float(error.abs().mean())
+    rmse = float(np.sqrt(np.square(error).mean()))
+    if y_max > 0.0:
+        nmae = float(mae / y_max)
+        nrmse = float(rmse / y_max)
+    else:
+        nmae = float("nan")
+        nrmse = float("nan")
     return {
         "rows": int(len(error)),
-        "mae": float(error.abs().mean()),
-        "rmse": float(np.sqrt(np.square(error).mean())),
+        "mae": mae,
+        "rmse": rmse,
+        "nmae": nmae,
+        "nrmse": nrmse,
         "bias": float(error.mean()),
+        "y_max": y_max,
     }
 
 
@@ -71,6 +92,8 @@ def main() -> None:
                 "num_datasets": int(len(per_station)),
                 "mae": float(per_station["mae"].mean()),
                 "rmse": float(per_station["rmse"].mean()),
+                "nmae": float(per_station["nmae"].mean()),
+                "nrmse": float(per_station["nrmse"].mean()),
                 "bias": float(per_station["bias"].mean()),
                 "rows_total": int(per_station["rows"].sum()),
             }
