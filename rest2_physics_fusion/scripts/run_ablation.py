@@ -162,6 +162,9 @@ def train_and_eval_one(
         "use_weather_prior_fusion": use_weather_prior_fusion,
         "mae": metrics["mae"],
         "rmse": metrics["rmse"],
+        "nmae": metrics.get("nmae"),
+        "nrmse": metrics.get("nrmse"),
+        "y_max": metrics.get("y_max"),
         "checkpoint": str(best_checkpoint),
     }
 
@@ -169,7 +172,7 @@ def train_and_eval_one(
 def build_summary(results: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for (dataset, target_column), group in results.groupby(["dataset", "target_column"]):
-        pivot = group.pivot_table(index="seed", columns="model_type", values=["mae", "rmse"], aggfunc="first")
+        pivot = group.pivot_table(index="seed", columns="model_type", values=["mae", "rmse", "nmae", "nrmse"], aggfunc="first")
         if ("mae", "baseline") not in pivot.columns:
             continue
         baseline_mae = pivot[("mae", "baseline")]
@@ -182,6 +185,10 @@ def build_summary(results: pd.DataFrame) -> pd.DataFrame:
             candidate_rmse = pivot[("rmse", candidate)]
             delta_mae = candidate_mae - baseline_mae
             delta_rmse = candidate_rmse - baseline_rmse
+            baseline_nmae = pivot[("nmae", "baseline")] if ("nmae", "baseline") in pivot.columns else None
+            candidate_nmae = pivot[("nmae", candidate)] if ("nmae", candidate) in pivot.columns else None
+            baseline_nrmse = pivot[("nrmse", "baseline")] if ("nrmse", "baseline") in pivot.columns else None
+            candidate_nrmse = pivot[("nrmse", candidate)] if ("nrmse", candidate) in pivot.columns else None
             row = {
                 "dataset": dataset,
                 "target_column": target_column,
@@ -202,6 +209,26 @@ def build_summary(results: pd.DataFrame) -> pd.DataFrame:
                 "delta_rmse_std": float(delta_rmse.std(ddof=0)),
                 "candidate_win_rate_rmse": float((delta_rmse < 0.0).mean()),
             }
+            if baseline_nmae is not None and candidate_nmae is not None:
+                delta_nmae = candidate_nmae - baseline_nmae
+                row.update(
+                    {
+                        "baseline_nmae_mean": float(baseline_nmae.mean()),
+                        "candidate_nmae_mean": float(candidate_nmae.mean()),
+                        "delta_nmae_mean": float(delta_nmae.mean()),
+                        "candidate_win_rate_nmae": float((delta_nmae < 0.0).mean()),
+                    }
+                )
+            if baseline_nrmse is not None and candidate_nrmse is not None:
+                delta_nrmse = candidate_nrmse - baseline_nrmse
+                row.update(
+                    {
+                        "baseline_nrmse_mean": float(baseline_nrmse.mean()),
+                        "candidate_nrmse_mean": float(candidate_nrmse.mean()),
+                        "delta_nrmse_mean": float(delta_nrmse.mean()),
+                        "candidate_win_rate_nrmse": float((delta_nrmse < 0.0).mean()),
+                    }
+                )
             if candidate == "rest2_calibrated":
                 row.update(
                     {
