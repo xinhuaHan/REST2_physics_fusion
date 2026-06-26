@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -47,6 +48,17 @@ def build_loaders(
     physics_norm: dict[str, object] | None = None,
 ) -> tuple[DataLoader, DataLoader, DataLoader, dict[str, object], dict[str, object]]:
     frame = read_training_csv(csv_path, schema.timestamp_column)
+    target = pd.to_numeric(frame[schema.target_column], errors="coerce")
+    valid_target = np.isfinite(target.to_numpy(dtype=float))
+    dropped = int((~valid_target).sum())
+    if dropped:
+        print(f"warning=dropped_invalid_targets csv={csv_path} target_column={schema.target_column} rows={dropped}")
+    frame = frame.loc[valid_target].reset_index(drop=True)
+    if len(frame) < max(3, int(window_steps) + 2):
+        raise ValueError(
+            f"Not enough valid rows after filtering target={schema.target_column}: "
+            f"csv={csv_path} rows={len(frame)} window_steps={window_steps}"
+        )
     train_df, val_df, test_df = chronological_split(frame)
     serial_norm = serial_norm or compute_norm_stats(train_df, list(schema.serial_feature_columns))
     physics_norm = physics_norm or compute_norm_stats(train_df, list(schema.physics_feature_columns))
@@ -154,7 +166,7 @@ def train_model(
         val_loss = float(sum(val_losses) / max(1, len(val_losses)))
         records.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
         print(f"epoch={epoch} train_loss={train_loss:.4f} val_loss={val_loss:.4f}")
-        if val_loss < best_val:
+        if np.isfinite(val_loss) and val_loss < best_val:
             best_val = val_loss
             torch.save(
                 {
@@ -166,6 +178,19 @@ def train_model(
                 },
                 best_path,
             )
+
+    if not best_path.exists():
+        print(f"warning=no_finite_validation_checkpoint_saving_last_epoch path={best_path}")
+        torch.save(
+            {
+                "model_state_dict": model.state_dict(),
+                "schema": schema.__dict__,
+                "serial_norm": _serialize_norm(serial_norm),
+                "physics_norm": _serialize_norm(physics_norm),
+                "model_config": model_config,
+            },
+            best_path,
+        )
 
     pd.DataFrame(records).to_csv(output_path / "epoch_losses.csv", index=False)
     return best_path
@@ -184,6 +209,10 @@ def evaluate_model(
     if schema is None:
         schema_state = checkpoint.get("schema", {})
         schema = DataSchema(target_column=schema_state.get("target_column", "target_ghi_5min"))
+    frame_for_normalizer = read_training_csv(csv_path, schema.timestamp_column)
+    target_for_normalizer = pd.to_numeric(frame_for_normalizer[schema.target_column], errors="coerce")
+    finite_target = target_for_normalizer[np.isfinite(target_for_normalizer.to_numpy(dtype=float))]
+    y_max = float(finite_target.max()) if len(finite_target) else float("nan")
     serial_norm = _deserialize_norm(checkpoint.get("serial_norm"))
     physics_norm = _deserialize_norm(checkpoint.get("physics_norm"))
     _, _, test_loader, _, eval_physics_norm = build_loaders(
@@ -228,4 +257,4 @@ def evaluate_model(
             targets.append(batch["target"])
     pred = torch.cat(predictions, dim=0)
     target = torch.cat(targets, dim=0)
-    return regression_metrics(pred, target)
+    return regression_metrics(pred, target, y_max=y_max)
