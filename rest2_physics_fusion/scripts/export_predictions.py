@@ -191,7 +191,11 @@ def main() -> None:
 
     pred_tensor = torch.cat(predictions, dim=0)
     target_tensor = torch.cat(targets, dim=0)
-    metrics = regression_metrics(pred_tensor.view(-1, 1), target_tensor.view(-1, 1))
+    full_frame = read_training_csv(args.csv, schema.timestamp_column)
+    full_target = pd.to_numeric(full_frame[schema.target_column], errors="coerce")
+    full_target = full_target[pd.notna(full_target)]
+    y_max = float(full_target.max()) if len(full_target) else float("nan")
+    metrics = regression_metrics(pred_tensor.view(-1, 1), target_tensor.view(-1, 1), y_max=y_max)
     diagnostics = lookup_diagnostics(args.csv, schema, [row["dtime"] for row in records])
     output = pd.DataFrame(records).merge(diagnostics, on="dtime", how="left")
     output_path = Path(args.output)
