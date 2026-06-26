@@ -252,28 +252,46 @@ def train_selected_models(
     seed: int,
 ) -> pd.DataFrame:
     csv_by_name = {path.name: path for path in csv_files}
+    csv_by_key = {dataset_key(path): path for path in csv_files}
     rows = []
     for record in selection.to_dict(orient="records"):
-        csv_path = csv_by_name.get(str(record["dataset"]))
+        dataset = str(record["dataset"])
+        csv_path = csv_by_name.get(dataset) or csv_by_key.get(dataset)
         if csv_path is None:
-            continue
+            available = sorted({*csv_by_name.keys(), *csv_by_key.keys()})
+            raise FileNotFoundError(
+                f"Cannot match selected dataset={dataset!r} to a CSV file. "
+                f"Available datasets/keys: {available}"
+            )
         model_type = str(record["selected_model_type"])
         variant = resolve_model_variant(model_type)
         target_column = str(record["target_column"])
         run_dir = output_root / dataset_key(csv_path) / target_column / model_type
-        result = train_and_eval_one(
-            csv_path=csv_path,
-            output_dir=run_dir,
-            model_type=model_type,
-            use_rest2_calibration=variant.use_rest2_calibration,
-            use_weather_prior_fusion=variant.use_weather_prior_fusion,
-            use_clear_sky_weather_head=variant.use_clear_sky_weather_head,
-            use_clear_sky_power_prior=variant.use_clear_sky_power_prior,
-            weather_prior_weight_max=variant.weather_prior_weight_max,
-            target_column=target_column,
-            cfg=cfg,
-            seed=seed,
-        )
+        try:
+            result = train_and_eval_one(
+                csv_path=csv_path,
+                output_dir=run_dir,
+                model_type=model_type,
+                use_rest2_calibration=variant.use_rest2_calibration,
+                use_weather_prior_fusion=variant.use_weather_prior_fusion,
+                use_clear_sky_weather_head=variant.use_clear_sky_weather_head,
+                use_clear_sky_power_prior=variant.use_clear_sky_power_prior,
+                weather_prior_weight_max=variant.weather_prior_weight_max,
+                target_column=target_column,
+                cfg=cfg,
+                seed=seed,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to train selected model for dataset={dataset} "
+                f"target_column={target_column} model_type={model_type} output_dir={run_dir}"
+            ) from exc
+        checkpoint = Path(str(result.get("checkpoint", "")))
+        if not checkpoint.exists():
+            raise FileNotFoundError(
+                f"Selected model did not create best.pt: dataset={dataset} "
+                f"target_column={target_column} model_type={model_type} expected={checkpoint}"
+            )
         rows.append(result)
     trained = pd.DataFrame(rows)
     output_root.mkdir(parents=True, exist_ok=True)
