@@ -257,4 +257,4 @@ def evaluate_model(
             targets.append(batch["target"])
     pred = torch.cat(predictions, dim=0)
     target = torch.cat(targets, dim=0)
-    return regression_metrics(pred, target, y_max=y_max) 
+    return regression_metrics(pred, target, y_max=y_max)
