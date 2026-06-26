@@ -829,6 +829,17 @@ pooled_metrics.csv          # 合并所有测试样本后的总体 MAE/RMSE
 macro_metrics.csv           # 各站点指标等权平均，避免样本多的站点支配结论
 ```
 
+评估指标包含：
+
+```text
+MAE
+RMSE
+nMAE = MAE / y_max
+nRMSE = RMSE / y_max
+```
+
+其中 `y_max` 为对应评估目标列的最大 GHI 值。`evaluate.py`、`run_dataset_pipeline.py` 和 `export_predictions.py` 默认使用完整输入 CSV 中该 target 列的最大值；`evaluate_pooled_predictions.py` 在单站点、pooled、macro 统计时分别使用对应预测集合中的目标最大值。
+
 ## 第 9 步：导出物理向量给 PVMMOE
 
 如果需要把当前物理分支作为一个外部模态接入 PVMMOE，可以直接从 `model_ready` CSV 导出物理向量。
