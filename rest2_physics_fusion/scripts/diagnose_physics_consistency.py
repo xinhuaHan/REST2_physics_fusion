@@ -11,6 +11,9 @@ TARGET_TO_HORIZON = {
     "target_ghi_5min": "5min",
     "target_ghi_4h": "4h",
     "target_ghi_1d": "1d",
+    "target_power_5min": "5min",
+    "target_power_4h": "4h",
+    "target_power_1d": "1d",
 }
 
 

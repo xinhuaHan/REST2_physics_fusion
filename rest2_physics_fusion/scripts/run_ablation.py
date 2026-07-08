@@ -13,7 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rest2_physics_fusion.data.preprocess import set_seed
-from rest2_physics_fusion.data.schema import DataSchema
+from rest2_physics_fusion.data.schema import schema_from_config
 from rest2_physics_fusion.training.train import evaluate_model, train_model
 from rest2_physics_fusion.training.model_selection import MODEL_VARIANTS, dataset_key, resolve_model_variant
 
@@ -118,7 +118,7 @@ def train_and_eval_one(
     data_cfg = cfg["data"]
     model_cfg = cfg.get("model", {})
     train_cfg = cfg["training"]
-    schema = DataSchema(target_column=target_column)
+    schema = schema_from_config(data_cfg, target_column=target_column)
     set_seed(seed)
     best_checkpoint = train_model(
         csv_path,
@@ -140,8 +140,11 @@ def train_and_eval_one(
         ),
         use_weather_prior_fusion=use_weather_prior_fusion,
         use_clear_sky_power_prior=use_clear_sky_power_prior,
+        use_ghi_to_power_head=bool(model_cfg.get("use_ghi_to_power_head", False)),
+        power_head_hidden=int(model_cfg.get("power_head_hidden", 16)),
         weather_prior_weight_max=weather_prior_weight_max,
         prior_weight_l1=float(model_cfg.get("prior_weight_l1", 0.0)),
+        auxiliary_ghi_loss_weight=float(model_cfg.get("auxiliary_ghi_loss_weight", 0.0)),
         sky_index_max=float(cfg.get("physics", {}).get("sky_index_max", 2.0)),
     )
     metrics = evaluate_model(

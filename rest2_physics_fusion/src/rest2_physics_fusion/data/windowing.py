@@ -18,6 +18,7 @@ class WindowSample:
     physics: torch.Tensor
     physics_raw: torch.Tensor
     target: torch.Tensor
+    auxiliary_target: torch.Tensor | None
     timestamp: str
 
 
@@ -59,12 +60,20 @@ class PhysicsWindowDataset(Dataset):
         weather = apply_norm(weather, self.serial_norm_for(self.weather_columns))
         physics = apply_norm(physics, self.physics_norm)
         target = np.float32(target_row[self.schema.target_column])
+        auxiliary_target = None
+        if self.schema.auxiliary_target_column and self.schema.auxiliary_target_column in target_row.index:
+            auxiliary_target = np.float32(target_row[self.schema.auxiliary_target_column])
         return WindowSample(
             serial=torch.from_numpy(serial).float(),
             weather=torch.from_numpy(weather).float(),
             physics=torch.from_numpy(physics).float(),
             physics_raw=torch.from_numpy(physics_raw).float(),
             target=torch.tensor([target], dtype=torch.float32),
+            auxiliary_target=(
+                torch.tensor([auxiliary_target], dtype=torch.float32)
+                if auxiliary_target is not None
+                else None
+            ),
             timestamp=str(target_row[self.schema.timestamp_column]),
         )
 
@@ -79,7 +88,7 @@ class PhysicsWindowDataset(Dataset):
 
 
 def collate_window_samples(batch: list[WindowSample]) -> dict[str, torch.Tensor | list[str]]:
-    return {
+    output = {
         "serial": torch.stack([item.serial for item in batch]),
         "weather": torch.stack([item.weather for item in batch]),
         "physics": torch.stack([item.physics for item in batch]),
@@ -87,3 +96,6 @@ def collate_window_samples(batch: list[WindowSample]) -> dict[str, torch.Tensor 
         "target": torch.stack([item.target for item in batch]),
         "timestamp": [item.timestamp for item in batch],
     }
+    if all(item.auxiliary_target is not None for item in batch):
+        output["auxiliary_target"] = torch.stack([item.auxiliary_target for item in batch if item.auxiliary_target is not None])
+    return output

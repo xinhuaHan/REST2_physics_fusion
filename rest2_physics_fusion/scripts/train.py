@@ -12,7 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rest2_physics_fusion.training.train import train_model
-from rest2_physics_fusion.data.schema import DataSchema
+from rest2_physics_fusion.data.schema import schema_from_config
 from rest2_physics_fusion.training.model_selection import MODEL_VARIANTS, resolve_model_variant, select_model_type
 
 
@@ -26,6 +26,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-selection-csv", default=None)
     parser.add_argument("--use-rest2-calibration", action="store_true")
     parser.add_argument("--use-weather-prior-fusion", action="store_true")
+    parser.add_argument("--use-ghi-to-power-head", action="store_true")
+    parser.add_argument("--auxiliary-ghi-loss-weight", type=float, default=None)
     parser.add_argument("--prior-weight-l1", type=float, default=None)
     return parser.parse_args()
 
@@ -46,7 +48,7 @@ def main() -> None:
             default_model_type="baseline",
         )
     variant = resolve_model_variant(model_type or "baseline")
-    schema = DataSchema(target_column=target_column)
+    schema = schema_from_config(data_cfg, target_column=target_column)
     output_dir = Path(args.output_dir or train_cfg["output_dir"])
     if not output_dir.is_absolute():
         output_dir = ROOT / output_dir
@@ -79,11 +81,18 @@ def main() -> None:
             or model_cfg.get("use_weather_prior_fusion", False)
         ),
         use_clear_sky_power_prior=bool(variant.use_clear_sky_power_prior),
+        use_ghi_to_power_head=bool(args.use_ghi_to_power_head or model_cfg.get("use_ghi_to_power_head", False)),
+        power_head_hidden=int(model_cfg.get("power_head_hidden", 16)),
         weather_prior_weight_max=float(variant.weather_prior_weight_max),
         prior_weight_l1=float(
             args.prior_weight_l1
             if args.prior_weight_l1 is not None
             else model_cfg.get("prior_weight_l1", 0.0)
+        ),
+        auxiliary_ghi_loss_weight=float(
+            args.auxiliary_ghi_loss_weight
+            if args.auxiliary_ghi_loss_weight is not None
+            else model_cfg.get("auxiliary_ghi_loss_weight", 0.0)
         ),
         sky_index_max=float(cfg.get("physics", {}).get("sky_index_max", 2.0)),
     )

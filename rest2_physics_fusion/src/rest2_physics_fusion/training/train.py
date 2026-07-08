@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from rest2_physics_fusion.data.preprocess import chronological_split, compute_norm_stats, read_training_csv
-from rest2_physics_fusion.data.schema import DataSchema
+from rest2_physics_fusion.data.schema import DataSchema, schema_from_state
 from rest2_physics_fusion.data.windowing import PhysicsWindowDataset, collate_window_samples
 from rest2_physics_fusion.models.serial_physics_model import SerialPhysicsForecaster
 from rest2_physics_fusion.training.losses import regression_loss, regression_metrics
@@ -50,6 +50,9 @@ def build_loaders(
     frame = read_training_csv(csv_path, schema.timestamp_column)
     target = pd.to_numeric(frame[schema.target_column], errors="coerce")
     valid_target = np.isfinite(target.to_numpy(dtype=float))
+    if schema.auxiliary_target_column and schema.auxiliary_target_column in frame.columns:
+        auxiliary = pd.to_numeric(frame[schema.auxiliary_target_column], errors="coerce")
+        valid_target = valid_target & np.isfinite(auxiliary.to_numpy(dtype=float))
     dropped = int((~valid_target).sum())
     if dropped:
         print(f"warning=dropped_invalid_targets csv={csv_path} target_column={schema.target_column} rows={dropped}")
@@ -89,8 +92,11 @@ def train_model(
     use_clear_sky_weather_head: bool = False,
     use_weather_prior_fusion: bool = False,
     use_clear_sky_power_prior: bool = False,
+    use_ghi_to_power_head: bool = False,
+    power_head_hidden: int = 16,
     weather_prior_weight_max: float = 1.0,
     prior_weight_l1: float = 0.0,
+    auxiliary_ghi_loss_weight: float = 0.0,
     sky_index_max: float = 2.0,
 ) -> Path:
     schema = schema or DataSchema()
@@ -108,8 +114,11 @@ def train_model(
         "use_clear_sky_weather_head": bool(use_clear_sky_weather_head),
         "use_weather_prior_fusion": bool(use_weather_prior_fusion),
         "use_clear_sky_power_prior": bool(use_clear_sky_power_prior),
+        "use_ghi_to_power_head": bool(use_ghi_to_power_head),
+        "power_head_hidden": int(power_head_hidden),
         "weather_prior_weight_max": float(weather_prior_weight_max),
         "prior_weight_l1": float(prior_weight_l1),
+        "auxiliary_ghi_loss_weight": float(auxiliary_ghi_loss_weight),
         "sky_index_max": float(sky_index_max),
         "target_column": schema.target_column,
         "physics_feature_columns": list(schema.physics_feature_columns),
@@ -128,6 +137,8 @@ def train_model(
         use_clear_sky_weather_head=use_clear_sky_weather_head,
         use_weather_prior_fusion=use_weather_prior_fusion,
         use_clear_sky_power_prior=use_clear_sky_power_prior,
+        use_ghi_to_power_head=use_ghi_to_power_head,
+        power_head_hidden=power_head_hidden,
         weather_prior_weight_max=weather_prior_weight_max,
         sky_index_max=sky_index_max,
         target_column=schema.target_column,
@@ -149,6 +160,15 @@ def train_model(
             optimizer.zero_grad()
             outputs = model(batch)
             loss = regression_loss(outputs["prediction"], batch["target"])
+            if (
+                auxiliary_ghi_loss_weight > 0.0
+                and "ghi_prediction" in outputs
+                and "auxiliary_target" in batch
+            ):
+                loss = loss + float(auxiliary_ghi_loss_weight) * regression_loss(
+                    outputs["ghi_prediction"],
+                    batch["auxiliary_target"],
+                )
             if prior_weight_l1 > 0.0 and "prior_weight" in outputs:
                 loss = loss + float(prior_weight_l1) * outputs["prior_weight"].mean()
             loss.backward()
@@ -161,7 +181,17 @@ def train_model(
             for batch in val_loader:
                 batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 outputs = model(batch)
-                val_losses.append(regression_loss(outputs["prediction"], batch["target"]).item())
+                val_loss = regression_loss(outputs["prediction"], batch["target"])
+                if (
+                    auxiliary_ghi_loss_weight > 0.0
+                    and "ghi_prediction" in outputs
+                    and "auxiliary_target" in batch
+                ):
+                    val_loss = val_loss + float(auxiliary_ghi_loss_weight) * regression_loss(
+                        outputs["ghi_prediction"],
+                        batch["auxiliary_target"],
+                    )
+                val_losses.append(val_loss.item())
         train_loss = float(sum(train_losses) / max(1, len(train_losses)))
         val_loss = float(sum(val_losses) / max(1, len(val_losses)))
         records.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
@@ -208,7 +238,7 @@ def evaluate_model(
     checkpoint = _load_checkpoint(checkpoint_path, device)
     if schema is None:
         schema_state = checkpoint.get("schema", {})
-        schema = DataSchema(target_column=schema_state.get("target_column", "target_ghi_5min"))
+        schema = schema_from_state(schema_state)
     frame_for_normalizer = read_training_csv(csv_path, schema.timestamp_column)
     target_for_normalizer = pd.to_numeric(frame_for_normalizer[schema.target_column], errors="coerce")
     finite_target = target_for_normalizer[np.isfinite(target_for_normalizer.to_numpy(dtype=float))]
@@ -239,6 +269,8 @@ def evaluate_model(
         use_clear_sky_weather_head=bool(model_config.get("use_clear_sky_weather_head", False)),
         use_weather_prior_fusion=bool(model_config.get("use_weather_prior_fusion", False)),
         use_clear_sky_power_prior=bool(model_config.get("use_clear_sky_power_prior", False)),
+        use_ghi_to_power_head=bool(model_config.get("use_ghi_to_power_head", False)),
+        power_head_hidden=int(model_config.get("power_head_hidden", 16)),
         weather_prior_weight_max=float(model_config.get("weather_prior_weight_max", 1.0)),
         sky_index_max=float(model_config.get("sky_index_max", 2.0)),
         target_column=model_config.get("target_column", schema.target_column),

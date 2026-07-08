@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -14,17 +15,21 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rest2_physics_fusion.data.preprocess import chronological_split, compute_norm_stats, read_training_csv
-from rest2_physics_fusion.data.schema import DataSchema, validate_columns
+from rest2_physics_fusion.data.schema import schema_from_config, validate_columns
 
 
 DEFAULT_INDEX_COLUMNS = (
+    "timestamp",
     "dtime",
     "source_type",
     "station_name",
     "input_ghi",
+    "observe_power",
     "target_ghi_5min",
     "target_ghi_4h",
     "target_ghi_1d",
+    "target_power_4h",
+    "target_power_1d",
 )
 
 
@@ -36,6 +41,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--csv", required=True, help="Input model_ready CSV.")
+    parser.add_argument("--config", default=str(ROOT / "configs" / "base.yaml"))
     parser.add_argument("--output-dir", default=str(ROOT / "outputs" / "physics_vectors"))
     parser.add_argument("--target-column", default="target_ghi_5min")
     parser.add_argument("--prefix", default=None, help="Output file prefix. Default: input CSV stem.")
@@ -74,7 +80,8 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = args.prefix or csv_path.stem
 
-    schema = DataSchema(target_column=args.target_column)
+    cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+    schema = schema_from_config(cfg.get("data", {}), target_column=args.target_column)
     frame = read_training_csv(csv_path, schema.timestamp_column)
     validate_columns(set(frame.columns), schema)
     export_frame, train_frame, split_name = select_split(frame, args.split)

@@ -23,6 +23,8 @@ class SerialPhysicsForecaster(nn.Module):
         use_clear_sky_weather_head: bool = False,
         use_weather_prior_fusion: bool = False,
         use_clear_sky_power_prior: bool = False,
+        use_ghi_to_power_head: bool = False,
+        power_head_hidden: int = 16,
         weather_prior_weight_max: float = 1.0,
         sky_index_max: float = 2.0,
         target_column: str = "target_ghi_5min",
@@ -33,6 +35,7 @@ class SerialPhysicsForecaster(nn.Module):
         self.use_clear_sky_weather_head = use_clear_sky_weather_head
         self.use_weather_prior_fusion = use_weather_prior_fusion
         self.use_clear_sky_power_prior = use_clear_sky_power_prior
+        self.use_ghi_to_power_head = use_ghi_to_power_head
         self.weather_prior_weight_max = float(weather_prior_weight_max)
         self.sky_index_max = float(sky_index_max)
         self.target_column = target_column
@@ -95,6 +98,11 @@ class SerialPhysicsForecaster(nn.Module):
         )
         self.log_power_scale = nn.Parameter(torch.zeros(1))
         self.power_bias = nn.Parameter(torch.zeros(1))
+        self.ghi_to_power_head = nn.Sequential(
+            nn.Linear(1, int(power_head_hidden)),
+            nn.GELU(),
+            nn.Linear(int(power_head_hidden), 1),
+        )
         self._initialize_weather_prior_heads()
 
     def _initialize_weather_prior_heads(self) -> None:
@@ -128,6 +136,15 @@ class SerialPhysicsForecaster(nn.Module):
         }
         return mapping.get(target_column, "weather_adjusted_clear_sky_ghi")
 
+    def _apply_ghi_to_power_head(self, outputs: dict[str, torch.Tensor], ghi_pred: torch.Tensor) -> dict[str, torch.Tensor]:
+        if not self.use_ghi_to_power_head:
+            return outputs
+        power_pred = self.ghi_to_power_head(ghi_pred.clamp(min=0.0)).clamp(min=0.0)
+        outputs["ghi_prediction"] = ghi_pred
+        outputs["power_prediction"] = power_pred
+        outputs["prediction"] = power_pred
+        return outputs
+
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         serial = torch.nan_to_num(batch["serial"].float(), nan=0.0, posinf=0.0, neginf=0.0)
         physics = torch.nan_to_num(batch["physics"].float(), nan=0.0, posinf=0.0, neginf=0.0)
@@ -150,7 +167,7 @@ class SerialPhysicsForecaster(nn.Module):
             if rest2_gate is not None and rest2_effective_blend is not None:
                 outputs["rest2_gate"] = rest2_gate
                 outputs["rest2_effective_blend"] = rest2_effective_blend
-            return outputs
+            return self._apply_ghi_to_power_head(outputs, pred)
 
         if self.clear_sky_index is None:
             raise ValueError("clear-sky weather head requires ghi_clear_target in physics_feature_columns")
@@ -195,7 +212,7 @@ class SerialPhysicsForecaster(nn.Module):
             if rest2_gate is not None and rest2_effective_blend is not None:
                 outputs["rest2_gate"] = rest2_gate
                 outputs["rest2_effective_blend"] = rest2_effective_blend
-            return outputs
+            return self._apply_ghi_to_power_head(outputs, pred)
 
         if self.use_weather_prior_fusion:
             k_pred = self.k_index_head(fused) * self.sky_index_max
@@ -229,7 +246,7 @@ class SerialPhysicsForecaster(nn.Module):
             if rest2_gate is not None and rest2_effective_blend is not None:
                 outputs["rest2_gate"] = rest2_gate
                 outputs["rest2_effective_blend"] = rest2_effective_blend
-            return outputs
+            return self._apply_ghi_to_power_head(outputs, pred)
 
         k_pred = self.k_index_head(fused) * self.sky_index_max
         residual_pred = self.residual_head(fused)
@@ -246,4 +263,4 @@ class SerialPhysicsForecaster(nn.Module):
         if rest2_gate is not None and rest2_effective_blend is not None:
             outputs["rest2_gate"] = rest2_gate
             outputs["rest2_effective_blend"] = rest2_effective_blend
-        return outputs
+        return self._apply_ghi_to_power_head(outputs, pred)

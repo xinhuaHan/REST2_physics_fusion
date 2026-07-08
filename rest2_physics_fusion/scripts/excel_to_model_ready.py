@@ -14,6 +14,7 @@ for path in (SRC, SCRIPTS):
         sys.path.insert(0, str(path))
 
 from rest2_physics_fusion.data.merge_sources import merge_station_with_weather
+from rest2_physics_fusion.data.merge_sources import WEATHER_COLUMNS
 from rest2_physics_fusion.physics.physics_features import PhysicsConfig, build_physics_features
 from rest2_physics_fusion.physics.solar_geometry import SiteConfig
 
@@ -88,6 +89,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--station-weather-tolerance-minutes", type=int, default=60)
     parser.add_argument("--target-tolerance-multiplier", type=float, default=1.5)
     parser.add_argument(
+        "--no-interpolate-missing",
+        dest="interpolate_missing",
+        action="store_false",
+        default=True,
+        help="Disable interpolation of small internal gaps before physics/target generation.",
+    )
+    parser.add_argument(
+        "--interpolate-max-gap-steps",
+        type=int,
+        default=8,
+        help="Maximum consecutive missing rows to fill by time interpolation. Larger gaps remain missing.",
+    )
+    parser.add_argument(
         "--sources",
         nargs="*",
         default=list(EXCEL_SPECS),
@@ -119,6 +133,37 @@ def infer_step(series: pd.Series) -> pd.Timedelta:
     if diffs.empty:
         return pd.Timedelta(minutes=15)
     return diffs.median()
+
+
+def interpolate_source_gaps(
+    frame: pd.DataFrame,
+    *,
+    timestamp_column: str,
+    value_columns: list[str],
+    max_gap_steps: int,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    out = frame.copy()
+    existing_columns = [column for column in value_columns if column in out.columns]
+    if not existing_columns:
+        return out, {}
+    out[timestamp_column] = pd.to_datetime(out[timestamp_column])
+    out = out.sort_values(timestamp_column).reset_index(drop=True)
+    before = {column: int(pd.to_numeric(out[column], errors="coerce").isna().sum()) for column in existing_columns}
+    indexed = out.set_index(timestamp_column)
+    for column in existing_columns:
+        indexed[column] = pd.to_numeric(indexed[column], errors="coerce")
+        indexed[column] = indexed[column].interpolate(
+            method="time",
+            limit=max(0, int(max_gap_steps)),
+            limit_direction="both",
+            limit_area="inside",
+        )
+        if column.lower() in {"ghi", "observe_ghi", "input_ghi", "temp", "ws", "prec", "pwat", "sdwe"}:
+            if column.lower() not in {"temp"}:
+                indexed[column] = indexed[column].clip(lower=0.0)
+    out = indexed.reset_index()
+    after = {column: int(pd.to_numeric(out[column], errors="coerce").isna().sum()) for column in existing_columns}
+    return out, {column: before[column] - after[column] for column in existing_columns if before[column] > after[column]}
 
 
 def add_future_targets_from_observed_ghi(
@@ -220,6 +265,15 @@ def main() -> None:
             input_dir=input_dir,
             station_weather_tolerance_minutes=args.station_weather_tolerance_minutes,
         )
+        interpolation_summary: dict[str, int] = {}
+        if args.interpolate_missing:
+            interpolation_columns = [str(spec["ghi_column"]), *WEATHER_COLUMNS]
+            raw, interpolation_summary = interpolate_source_gaps(
+                raw,
+                timestamp_column="dtime",
+                value_columns=interpolation_columns,
+                max_gap_steps=args.interpolate_max_gap_steps,
+            )
         physics = build_physics_features(
             raw,
             timestamp_column="dtime",
@@ -228,12 +282,24 @@ def main() -> None:
             source_type=str(spec["source_type"]),
             station_name=str(spec["station_name"]),
         )
+        if interpolation_summary:
+            summary_text = ";".join(f"{column}:{count}" for column, count in sorted(interpolation_summary.items()))
+            physics["interpolation_summary"] = summary_text
+            physics["feature_quality_flags"] = physics["feature_quality_flags"].astype(str) + ";interpolated_before_targets"
+            print(f"interpolated={key} {summary_text}")
         physics = add_future_targets_from_observed_ghi(
             physics,
             timestamp_column="dtime",
             value_column="input_ghi",
             tolerance_multiplier=args.target_tolerance_multiplier,
         )
+        invalid_targets = {
+            column: int(pd.to_numeric(physics[column], errors="coerce").isna().sum())
+            for column in TARGET_HORIZONS
+            if column in physics.columns
+        }
+        if any(invalid_targets.values()):
+            print(f"warning=invalid_targets_after_conversion source={key} counts={invalid_targets}")
         physics["source_file"] = str(spec["file_name"])
         output_name = str(spec["output_name"])
         write_csv(physics, enriched_dir / output_name)

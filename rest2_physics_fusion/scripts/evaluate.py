@@ -10,7 +10,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rest2_physics_fusion.training.train import evaluate_model
-from rest2_physics_fusion.data.schema import DataSchema
+from rest2_physics_fusion.training.train import _load_checkpoint
+from rest2_physics_fusion.data.schema import schema_from_state
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,7 +27,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    schema = DataSchema(target_column=args.target_column) if args.target_column else None
+    checkpoint = _load_checkpoint(args.checkpoint, args.device)
+    schema = schema_from_state(checkpoint.get("schema", {}), target_column=args.target_column)
     metrics = evaluate_model(
         args.checkpoint,
         args.csv,

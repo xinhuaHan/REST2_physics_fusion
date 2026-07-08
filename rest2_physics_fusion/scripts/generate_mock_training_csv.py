@@ -114,13 +114,19 @@ def write_csv(frame: pd.DataFrame, path: Path) -> None:
 
 
 MODEL_READY_BASE_COLUMNS = [
-    "dtime",
+    "timestamp",
     "source_type",
     "station_name",
     "input_ghi",
+    "input_dhi",
+    "input_dni",
+    "observe_power",
     "target_ghi_5min",
     "target_ghi_4h",
     "target_ghi_1d",
+    "target_power_5min",
+    "target_power_4h",
+    "target_power_1d",
 ]
 
 MODEL_READY_SERIAL_COLUMNS = [
@@ -184,6 +190,19 @@ MODEL_READY_COLUMNS = (
 
 
 def to_model_ready(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = frame.copy()
+    if "timestamp" not in frame.columns and "dtime" in frame.columns:
+        frame["timestamp"] = frame["dtime"]
+    if "input_dhi" not in frame.columns:
+        frame["input_dhi"] = frame.get("dhi", 0.0)
+    if "input_dni" not in frame.columns:
+        frame["input_dni"] = frame.get("dni", 0.0)
+    if "observe_power" not in frame.columns:
+        frame["observe_power"] = pd.NA
+    for horizon in ("5min", "4h", "1d"):
+        power_col = f"target_power_{horizon}"
+        if power_col not in frame.columns:
+            frame[power_col] = pd.NA
     missing = [column for column in MODEL_READY_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError(f"Cannot build model_ready CSV; missing columns: {missing}")

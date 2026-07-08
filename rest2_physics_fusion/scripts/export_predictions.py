@@ -13,7 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rest2_physics_fusion.data.preprocess import read_training_csv
-from rest2_physics_fusion.data.schema import DataSchema
+from rest2_physics_fusion.data.schema import DataSchema, schema_from_state
 from rest2_physics_fusion.training.losses import regression_metrics
 from rest2_physics_fusion.training.train import _deserialize_norm, _load_checkpoint, _serialize_norm, build_loaders
 from rest2_physics_fusion.models.serial_physics_model import SerialPhysicsForecaster
@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
 
 def schema_from_checkpoint(checkpoint: dict, target_column: str | None) -> DataSchema:
     schema_state = checkpoint.get("schema", {})
-    return DataSchema(target_column=target_column or schema_state.get("target_column", "target_ghi_5min"))
+    return schema_from_state(schema_state, target_column=target_column)
 
 
 def build_model(checkpoint: dict, schema: DataSchema, physics_norm: dict, device: str) -> SerialPhysicsForecaster:
@@ -79,6 +79,8 @@ def build_model(checkpoint: dict, schema: DataSchema, physics_norm: dict, device
         use_clear_sky_weather_head=bool(model_config.get("use_clear_sky_weather_head", False)),
         use_weather_prior_fusion=bool(model_config.get("use_weather_prior_fusion", False)),
         use_clear_sky_power_prior=bool(model_config.get("use_clear_sky_power_prior", False)),
+        use_ghi_to_power_head=bool(model_config.get("use_ghi_to_power_head", False)),
+        power_head_hidden=int(model_config.get("power_head_hidden", 16)),
         weather_prior_weight_max=float(model_config.get("weather_prior_weight_max", 1.0)),
         sky_index_max=float(model_config.get("sky_index_max", 2.0)),
         target_column=model_config.get("target_column", schema.target_column),
@@ -115,6 +117,7 @@ def lookup_diagnostics(csv_path: str | Path, schema: DataSchema, timestamps: lis
     for timestamp in timestamps:
         row = lookup.loc[timestamp]
         values = {
+            "dtime": timestamp,
             schema.timestamp_column: timestamp,
             "target_column": schema.target_column,
         }
@@ -178,6 +181,8 @@ def main() -> None:
                     "clear_sky_power_prior",
                     "power_scale",
                     "power_bias",
+                    "ghi_prediction",
+                    "power_prediction",
                     "rest2_gate",
                     "rest2_effective_blend",
                 ):

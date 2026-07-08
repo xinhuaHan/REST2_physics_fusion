@@ -189,6 +189,30 @@ cd C:\Users\ADMIN\Desktop\rest2_physics_fusion
 C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\excel_to_model_ready.py --input-dir "C:\Users\ADMIN\Desktop\新建文件夹" --model-ready-output-dir data\real_model_ready --enriched-output-dir data\real_enriched --physics-output-dir outputs\real_physics_csv --latitude 29.919 --longitude 100.641 --altitude-m 0.0 --timezone Asia/Shanghai --clear-sky-backend auto
 ```
 
+默认情况下，`excel_to_model_ready.py` 会在生成 `target_ghi_5min / target_ghi_4h / target_ghi_1d` 之前，对原始站点 GHI 和气象列做小缺口时间插值。这个步骤只修补序列内部的短缺失段，不会对整列缺失或长时间缺口强行外推，因此它更适合修复采集抖动、短时间缺测、天气表和站点表短暂错位这类问题。
+
+插值长度由下面的参数控制：
+
+```powershell
+--interpolate-max-gap-steps 8
+```
+
+如果原始数据是 15 分钟间隔，`8` 大约表示最多修补 2 小时以内的连续缺失；如果是 5 分钟间隔，`8` 大约表示最多修补 40 分钟以内的连续缺失。真实实验建议先保守使用 `4` 或 `8`，不要一开始把长缺口全部插平。
+
+如果你想完全关闭转换前插值，可以加：
+
+```powershell
+--no-interpolate-missing
+```
+
+转换时如果看到类似：
+
+```text
+warning=invalid_targets_after_conversion source=qingda_station counts={'target_ghi_4h': 222}
+```
+
+表示转换后仍有部分行无法得到有效未来目标，常见原因是原始未来观测缺失、时间戳断档、目标预测步长刚好落在数据缺口里，或者文件尾部没有足够未来数据。它不是删除整列，而是提示这些行在训练对应 `target_column` 时会被过滤掉。
+
 输出文件：
 
 ```text
@@ -311,7 +335,131 @@ C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\run_dat
 C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\excel_to_model_ready.py --input-dir "C:\Users\ADMIN\Desktop\新建文件夹" --model-ready-output-dir data\real_station_model_ready --enriched-output-dir data\real_station_enriched --physics-output-dir outputs\real_station_physics_csv --latitude 29.919 --longitude 100.641 --altitude-m 0.0 --timezone Asia/Shanghai --clear-sky-backend auto --station-only
 ```
 
+如果服务器真实数据中出现少量缺失，推荐站点级转换时显式保留插值参数：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\excel_to_model_ready.py --input-dir "C:\Users\ADMIN\Desktop\新建文件夹" --model-ready-output-dir data\real_station_model_ready --enriched-output-dir data\real_station_enriched --physics-output-dir outputs\real_station_physics_csv --latitude 29.919 --longitude 100.641 --altitude-m 0.0 --timezone Asia/Shanghai --clear-sky-backend auto --station-only --interpolate-max-gap-steps 8
+```
+
 这时天气历史文件仍会被读取并 join 到站点数据里，但不会把 `solar_history / forecast_4h / forecast_1d` 当成独立训练任务。
+
+## 解放站点：GHI/DHI/DNI + 气象/预报 -> 4h/1d 功率预测
+
+如果现在只使用解放站点，并且新增了一张和功率表时间戳完全一致的辐照度表：
+
+```text
+timestamp, ghi, dhi, dni
+```
+
+推荐使用新的两阶段流程：
+
+```text
+功率表 + 辐照度表 + 气象历史 + 4h天气预报 + 1d天气预报
+  -> train_jiefang_power.csv
+  -> 先预测未来 GHI
+  -> GHI-to-power 全连接层
+  -> 输出最终功率预测
+```
+
+这里的 `timestamp` 是新的标准时间列。旧 CSV 如果仍叫 `dtime`，代码会自动兼容；但新真实数据建议统一使用 `timestamp`。
+
+### 第 1 步：生成解放站点 model_ready
+
+假设文件分别为：
+
+```text
+解放电站数据.xlsx                 # 至少包含 timestamp 和功率列
+解放辐照度.xlsx                   # 新增表，包含 timestamp, ghi, dhi, dni
+solar_history.xlsx                # 气象历史
+天气预报（4小时）.xlsx
+天气预报（一天）.xlsx
+```
+
+运行：
+
+```powershell
+cd C:\Users\ADMIN\Desktop\REST2_physics_fusion-main\rest2_physics_fusion
+
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\build_jiefang_power_model_ready.py --power-file "C:\Users\ADMIN\Desktop\新建文件夹\解放电站数据.xlsx" --irradiance-file "C:\Users\ADMIN\Desktop\新建文件夹\解放辐照度.xlsx" --weather-history-file "C:\Users\ADMIN\Desktop\新建文件夹\solar_history.xlsx" --forecast-4h-file "C:\Users\ADMIN\Desktop\新建文件夹\天气预报（4小时）.xlsx" --forecast-1d-file "C:\Users\ADMIN\Desktop\新建文件夹\天气预报（一天）.xlsx" --model-ready-output data\jiefang_power_model_ready\train_jiefang_power.csv --enriched-output data\jiefang_power_enriched\train_jiefang_power.csv --physics-output outputs\jiefang_power_physics\physics_jiefang_power.csv --timestamp-column timestamp --power-column observe_power --latitude 29.919 --longitude 100.641 --altitude-m 0.0 --timezone Asia/Shanghai
+```
+
+如果功率列不叫 `observe_power`，把 `--power-column observe_power` 改成你的真实列名。
+
+输出的训练 CSV 会包含：
+
+```text
+target_ghi_4h
+target_ghi_1d
+target_power_4h
+target_power_1d
+forecast_4h_*
+forecast_1d_*
+```
+
+其中 GHI 目标来自新增的 `timestamp, ghi, dhi, dni` 表；功率目标来自解放站点功率表。
+
+### 第 2 步：训练 4h 功率预测
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\train.py --config configs\jiefang_power.yaml --train-csv data\jiefang_power_model_ready\train_jiefang_power.csv --target-column target_power_4h --model-type weather_prior --use-ghi-to-power-head --auxiliary-ghi-loss-weight 0.2 --output-dir outputs\jiefang_power_4h
+```
+
+这个命令的含义是：
+
+```text
+target_power_4h 是最终监督目标
+target_ghi_4h 是辅助监督目标
+模型先输出 ghi_prediction
+再通过 GHI-to-power 全连接层输出 power_prediction
+最终 prediction 就是功率预测
+```
+
+### 第 3 步：训练 1d 功率预测
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\train.py --config configs\jiefang_power.yaml --train-csv data\jiefang_power_model_ready\train_jiefang_power.csv --target-column target_power_1d --model-type weather_prior --use-ghi-to-power-head --auxiliary-ghi-loss-weight 0.2 --output-dir outputs\jiefang_power_1d
+```
+
+当 `target-column` 改成 `target_power_1d` 时，代码会自动把辅助 GHI 目标切换为 `target_ghi_1d`。
+
+### 第 4 步：评估和导出诊断
+
+4h 评估：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\evaluate.py --checkpoint outputs\jiefang_power_4h\best.pt --csv data\jiefang_power_model_ready\train_jiefang_power.csv --target-column target_power_4h
+```
+
+1d 评估：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\evaluate.py --checkpoint outputs\jiefang_power_1d\best.pt --csv data\jiefang_power_model_ready\train_jiefang_power.csv --target-column target_power_1d
+```
+
+导出逐行预测：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\export_predictions.py --checkpoint outputs\jiefang_power_4h\best.pt --csv data\jiefang_power_model_ready\train_jiefang_power.csv --target-column target_power_4h --output outputs\diagnostics\jiefang_power_4h_predictions.csv
+```
+
+导出的 CSV 中重点看：
+
+```text
+ghi_prediction      # 模型内部预测的未来 GHI
+power_prediction    # GHI-to-power 全连接层输出的功率
+prediction          # 最终预测，等同于 power_prediction
+target              # target_power_4h 或 target_power_1d
+```
+
+### 第 5 步：完整 pipeline 可选命令
+
+如果想跑 baseline、weather_prior、REST2 等 ablation：
+
+```powershell
+C:\Users\ADMIN\AppData\Local\Programs\Python\Python38\python.exe scripts\run_dataset_pipeline.py --config configs\jiefang_power.yaml --csv-dir data\jiefang_power_model_ready --csv-files train_jiefang_power.csv --output-root outputs\pipeline_jiefang_power --target-columns target_power_4h target_power_1d --seeds 42 43 44 45 46 --variants baseline weather_prior_weak weather_prior rest2_calibrated weather_prior_rest2 --train-selected
+```
+
+注意：在这个流程里，所有模型变体都会启用 `configs/jiefang_power.yaml` 中的 `use_ghi_to_power_head: true`。也就是说，比较的是不同 GHI/物理融合策略对最终功率预测的影响，而不是直接拿 GHI 当功率。
 
 ## 从 Folsom CSV 转成训练数据
 

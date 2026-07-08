@@ -18,10 +18,14 @@ def set_seed(seed: int) -> None:
         pass
 
 
-def read_training_csv(path: str | Path, timestamp_column: str = "dtime") -> pd.DataFrame:
+def read_training_csv(path: str | Path, timestamp_column: str = "timestamp") -> pd.DataFrame:
     df = pd.read_csv(path)
     if timestamp_column not in df.columns:
-        raise ValueError(f"Missing timestamp column: {timestamp_column}")
+        aliases = ["timestamp", "dtime"]
+        replacement = next((column for column in aliases if column in df.columns), None)
+        if replacement is None:
+            raise ValueError(f"Missing timestamp column: {timestamp_column}")
+        df[timestamp_column] = df[replacement]
     df[timestamp_column] = pd.to_datetime(df[timestamp_column])
     return df.sort_values(timestamp_column).reset_index(drop=True)
 

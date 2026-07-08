@@ -1,5 +1,5 @@
 project:
-  name: rest2-physics-fusion
+  name: rest2-jiefang-power
   seed: 42
 
 site:
@@ -16,10 +16,14 @@ physics:
 
 data:
   timestamp_column: timestamp
-  target_column: target_ghi_5min
+  target_column: target_power_4h
+  auxiliary_target_column: target_ghi_4h
   window_steps: 16
   feature_columns:
     - input_ghi
+    - input_dhi
+    - input_dni
+    - observe_power
     - temp_c
     - wind_speed
     - wind_dir
@@ -33,6 +37,41 @@ data:
     - pressure_pa_is_observed
     - aod700_is_observed
     - weather_is_joined
+    - forecast_4h_temp_c
+    - forecast_4h_wind_speed
+    - forecast_4h_wind_dir
+    - forecast_4h_precip
+    - forecast_4h_pwv_cm
+    - forecast_4h_ghi
+    - forecast_4h_is_joined
+    - forecast_1d_temp_c
+    - forecast_1d_wind_speed
+    - forecast_1d_wind_dir
+    - forecast_1d_precip
+    - forecast_1d_pwv_cm
+    - forecast_1d_ghi
+    - forecast_1d_is_joined
+  weather_feature_columns:
+    - temp_c
+    - wind_speed
+    - wind_dir
+    - precip
+    - pwv_cm
+    - weather_is_joined
+    - forecast_4h_temp_c
+    - forecast_4h_wind_speed
+    - forecast_4h_wind_dir
+    - forecast_4h_precip
+    - forecast_4h_pwv_cm
+    - forecast_4h_ghi
+    - forecast_4h_is_joined
+    - forecast_1d_temp_c
+    - forecast_1d_wind_speed
+    - forecast_1d_wind_dir
+    - forecast_1d_precip
+    - forecast_1d_pwv_cm
+    - forecast_1d_ghi
+    - forecast_1d_is_joined
   physics_features:
     - ghi_clear_target
     - dni_clear_target
@@ -68,7 +107,10 @@ model:
   fusion_hidden: 128
   dropout: 0.1
   use_rest2_calibration: false
-  use_weather_prior_fusion: false
+  use_weather_prior_fusion: true
+  use_ghi_to_power_head: true
+  power_head_hidden: 16
+  auxiliary_ghi_loss_weight: 0.2
   prior_weight_l1: 0.0
   architecture: clear_sky_weather_fusion
 
@@ -78,4 +120,4 @@ training:
   lr: 0.001
   weight_decay: 0.00001
   device: cpu
-  output_dir: outputs/checkpoints
+  output_dir: outputs/checkpoints_jiefang_power

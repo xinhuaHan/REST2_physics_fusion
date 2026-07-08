@@ -17,7 +17,7 @@ for path in (SRC, SCRIPTS):
 
 from analyze_ablation import add_decisions, build_model_selection, write_model_selection_yaml, write_report
 from diagnose_physics_consistency import make_work_frame, summarize_frame, summarize_segments
-from rest2_physics_fusion.data.schema import DataSchema, validate_columns
+from rest2_physics_fusion.data.schema import schema_from_config, validate_columns
 from rest2_physics_fusion.training.model_selection import MODEL_VARIANTS, dataset_key, resolve_model_variant
 from rest2_physics_fusion.utils.logging_utils import setup_logger
 from run_ablation import build_summary, discover_csvs, load_config, train_and_eval_one
@@ -103,12 +103,12 @@ def resolve_path(path: str | Path) -> Path:
     return ROOT / value
 
 
-def validate_model_ready_csvs(csv_files: list[Path], target_columns: list[str]) -> pd.DataFrame:
+def validate_model_ready_csvs(csv_files: list[Path], target_columns: list[str], data_cfg: dict) -> pd.DataFrame:
     rows = []
     for csv_path in csv_files:
         columns = set(pd.read_csv(csv_path, nrows=5).columns)
         for target_column in target_columns:
-            schema = DataSchema(target_column=target_column)
+            schema = schema_from_config(data_cfg, target_column=target_column)
             try:
                 validate_columns(columns, schema)
                 status = "ok"
@@ -358,7 +358,7 @@ def main() -> None:
         station_only=args.station_only,
     )
 
-    validation = validate_model_ready_csvs(csv_files, target_columns)
+    validation = validate_model_ready_csvs(csv_files, target_columns, cfg.get("data", {}))
     validation.to_csv(output_root / "schema_validation.csv", index=False, encoding="utf-8-sig")
     log_message(logger, f"schema_validation_csv={output_root / 'schema_validation.csv'}")
 
