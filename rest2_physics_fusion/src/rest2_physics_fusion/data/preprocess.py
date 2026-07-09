@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from rest2_physics_fusion.data.time_utils import to_naive_local_datetime
+
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -26,7 +28,7 @@ def read_training_csv(path: str | Path, timestamp_column: str = "timestamp") -> 
         if replacement is None:
             raise ValueError(f"Missing timestamp column: {timestamp_column}")
         df[timestamp_column] = df[replacement]
-    df[timestamp_column] = pd.to_datetime(df[timestamp_column])
+    df[timestamp_column] = to_naive_local_datetime(df[timestamp_column])
     return df.sort_values(timestamp_column).reset_index(drop=True)
 
 

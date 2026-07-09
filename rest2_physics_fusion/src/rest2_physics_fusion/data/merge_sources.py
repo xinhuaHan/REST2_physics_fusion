@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from rest2_physics_fusion.data.time_utils import to_naive_local_datetime
+
 
 WEATHER_COLUMNS = ["TEMP", "WS", "WD", "PREC", "PWAT", "SDWE"]
 
@@ -23,8 +25,8 @@ def merge_station_with_weather(
 
     station_work = station.copy()
     weather_work = weather.copy()
-    station_work[timestamp_column] = pd.to_datetime(station_work[timestamp_column])
-    weather_work[timestamp_column] = pd.to_datetime(weather_work[timestamp_column])
+    station_work[timestamp_column] = to_naive_local_datetime(station_work[timestamp_column])
+    weather_work[timestamp_column] = to_naive_local_datetime(weather_work[timestamp_column])
     station_work = station_work.sort_values(timestamp_column)
     weather_work = weather_work.sort_values(timestamp_column)
 
