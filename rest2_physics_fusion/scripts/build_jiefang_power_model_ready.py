@@ -16,6 +16,7 @@ for path in (SRC, SCRIPTS):
 
 from generate_mock_training_csv import MODEL_READY_COLUMNS
 from rest2_physics_fusion.data.merge_sources import WEATHER_COLUMNS, merge_station_with_weather
+from rest2_physics_fusion.data.time_utils import to_naive_local_datetime
 from rest2_physics_fusion.physics.physics_features import PhysicsConfig, build_physics_features
 from rest2_physics_fusion.physics.solar_geometry import SiteConfig
 
@@ -102,7 +103,7 @@ def normalize_timestamp(frame: pd.DataFrame, timestamp_column: str = "timestamp"
             out[timestamp_column] = out["timeStamp"]
         else:
             raise ValueError(f"Missing timestamp column. Expected {timestamp_column}, dtime, or timeStamp.")
-    out[timestamp_column] = pd.to_datetime(out[timestamp_column])
+    out[timestamp_column] = to_naive_local_datetime(out[timestamp_column])
     return out.sort_values(timestamp_column).reset_index(drop=True)
 
 
@@ -236,7 +237,7 @@ def add_forecast_features(
 
 
 def infer_step(series: pd.Series) -> pd.Timedelta:
-    diffs = pd.to_datetime(series).sort_values().diff().dropna()
+    diffs = to_naive_local_datetime(series).sort_values().diff().dropna()
     if diffs.empty:
         return pd.Timedelta(minutes=15)
     return diffs.median()
