@@ -1,0 +1,72 @@
+project:
+  seed: 42
+
+data:
+  root_dir: "${STATION_DATA_ROOT:-data/raw/station}"
+  processed_dir: "${STATION_PROCESSED_DIR:-data/processed/station}"
+  power_ghi_file: site_power_ghi.csv
+  irradiance_file: site_irradiance.csv
+  forecast_4h_file: forecast_4h.csv
+  forecast_1d_file: forecast_1d.csv
+  weather_file: site_weather.csv
+
+  timestamp_column: dtime
+  power_column: observe_power
+  power_ghi_column: observe_ghi
+  irradiance_ghi_column: observe_ghi
+  irradiance_dni_column: observe_dni
+  irradiance_dhi_column: observe_dhi
+  weather_columns: [GHI, TEMP, WS, WD, PREC, PWAT, SDWE]
+  forecast_columns: [GHI, TEMP, WS, WD, PREC, PWAT, SDWE]
+  forecast_issue_date_column: report_date
+  forecast_issue_time_column: report_time
+  forecast_interval_column: interval
+
+  # 真实站点参数：经度、纬度、海拔。
+  longitude: 100.641
+  latitude: 29.919
+  altitude_m: 4300.0
+  timezone: Asia/Shanghai
+  sample_minutes: 15
+  history_length: 16
+  forecast_lead_minutes: [15, 30, 60, 240, 1440]
+  train_fraction: 0.70
+  val_fraction: 0.15
+  # 夜间异常负功率按 0 截断。
+  power_target_floor: 0.0
+  # null 表示按海拔用标准大气公式自动计算；可填实测站压覆盖。
+  default_pressure_pa: null
+  default_aod700: 0.08
+
+model:
+  serial_input_dim: 13
+  physics_input_dim: 26
+  hidden_size: 768
+  serial_layers: 2
+  fusion_heads: 8
+  moe_layers: 4
+  moe_heads: 8
+  num_experts: 8
+  num_shared_experts: 2
+  top_k_experts: 2
+  pcd_hidden_size: 128
+  pcd_layers: 2
+  forecast_horizon: 5
+  target_mode: power
+  dropout: 0.1
+  raw_state_residual_scale: 500.0
+  night_cos_threshold: 0.0
+
+training:
+  batch_size: 16
+  epochs: 50
+  learning_rate: 0.0003
+  weight_decay: 0.00001
+  task_loss_weight: 1.0
+  irradiance_loss_weight: 0.2
+  moe_balance_weight: 0.01
+  raw_correction_weight: 0.000001
+  gradient_clip: 1.0
+  num_workers: 4
+  device: cuda
+  output_dir: outputs/station
