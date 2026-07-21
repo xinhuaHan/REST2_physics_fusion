@@ -1,6 +1,13 @@
 project:
   seed: 42
 
+# 实验划分：2024 年仅用于训练/内部验证；2025 年锁定为甲方评测集。
+experiment:
+  fixed_year_split: true
+  training_years: [2024]
+  holdout_years: [2025]
+  train_fraction_within_training_years: 0.85
+
 data:
   root_dir: "${STATION_DATA_ROOT:-data/raw/station}"
   processed_dir: "${STATION_PROCESSED_DIR:-data/processed/station}"
@@ -22,7 +29,6 @@ data:
   forecast_issue_time_column: report_time
   forecast_interval_column: interval
 
-  # 真实站点参数：经度、纬度、海拔。
   longitude: 100.641
   latitude: 29.919
   altitude_m: 4300.0
@@ -30,11 +36,11 @@ data:
   sample_minutes: 15
   history_length: 16
   forecast_lead_minutes: [15, 30, 60, 240, 1440]
+
+  # 底层通用预处理器的临时时间划分；随后会被上面的固定年份策略完全覆盖。
   train_fraction: 0.70
   val_fraction: 0.15
-  # 夜间异常负功率按 0 截断。
   power_target_floor: 0.0
-  # null 表示按海拔用标准大气公式自动计算；可填实测站压覆盖。
   default_pressure_pa: null
   default_aod700: 0.08
 
