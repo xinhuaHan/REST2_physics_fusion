@@ -7,7 +7,7 @@ name = "pv-physics-moe"
 version = "0.2.0"
 description = "Server-ready serial + REST2 + PVMMOE + PCD station forecaster"
 requires-python = ">=3.9"
-dependencies = ["numpy>=1.24", "pandas>=2.0", "PyYAML>=6.0", "torch>=2.1", "openpyxl>=3.1"]
+dependencies = ["numpy>=1.24", "pandas>=2.0", "PyYAML>=6.0", "torch>=2.1", "openpyxl>=3.1", "pyarrow>=12.0", "Pillow>=9.5"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

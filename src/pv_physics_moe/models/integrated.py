@@ -5,7 +5,7 @@ from torch import nn
 
 from pv_physics_moe.config import IntegratedConfig, ModelConfig
 from pv_physics_moe.physics import Rest2FeatureBuilder, SolarPhysicsStack
-from .encoders import PhysicsTokenEncoder, SerialEncoder
+from .encoders import PhysicsTokenEncoder, SerialEncoder, SkyImageEncoder
 from .fusion import PhysicsAwareCrossModalFusion
 from .moe import PVMMoEDecoder
 
@@ -21,9 +21,26 @@ class IntegratedPVPhysicsMoE(nn.Module):
         self.rest2 = Rest2FeatureBuilder()
         self.serial_encoder = SerialEncoder(cfg.serial_input_dim, d, cfg.serial_layers, cfg.moe_heads, cfg.dropout)
         self.physics_encoder = PhysicsTokenEncoder(cfg.physics_input_dim, d, cfg.dropout)
+        self.image_encoder = (
+            SkyImageEncoder(
+                cfg.image_channels,
+                d,
+                cfg.image_cnn_width,
+                cfg.image_temporal_layers,
+                cfg.image_temporal_heads,
+                cfg.dropout,
+                cfg.image_time_scale_minutes,
+            )
+            if cfg.use_image else None
+        )
+        input_dims = {"serial": d, "physics": d}
+        modality_order = ["serial", "physics"]
+        if cfg.use_image:
+            input_dims["image"] = d
+            modality_order.append("image")
         self.fusion = PhysicsAwareCrossModalFusion(
-            {"serial": d, "physics": d}, d, cfg.fusion_heads, cfg.dropout,
-            modality_order=("serial", "physics"),
+            input_dims, d, cfg.fusion_heads, cfg.dropout,
+            modality_order=tuple(modality_order),
         )
         self.moe = PVMMoEDecoder(d, cfg.moe_layers, cfg.moe_heads, cfg.num_experts, cfg.num_shared_experts, cfg.top_k_experts, cfg.dropout)
         self.history_skip = nn.Sequential(nn.Linear(3, d), nn.GELU(), nn.LayerNorm(d))
@@ -92,10 +109,25 @@ class IntegratedPVPhysicsMoE(nn.Module):
         serial_tokens, serial_mask = self.serial_encoder(serial, serial_mask)
         physics, physics_raw = self._physics_inputs(batch)
         physics_tokens, physics_mask = self.physics_encoder(physics, batch.get("physics_valid_mask"))
-        fusion = self.fusion({
+        modalities = {
             "serial": (serial_tokens, serial_mask),
             "physics": (physics_tokens, physics_mask),
-        })
+        }
+        if self.image_encoder is not None:
+            images = batch.get("images")
+            if images is None:
+                images = serial.new_zeros(
+                    (serial.size(0), 1, self.config.image_channels, self.config.image_size, self.config.image_size)
+                )
+                image_mask = torch.zeros((serial.size(0), 1), dtype=torch.long, device=serial.device)
+                image_offsets = torch.zeros((serial.size(0), 1), dtype=serial.dtype, device=serial.device)
+            else:
+                images = images.to(serial.device)
+                image_mask = batch.get("image_valid_mask")
+                image_offsets = batch.get("image_time_offsets")
+            image_tokens, image_mask = self.image_encoder(images, image_mask, image_offsets)
+            modalities["image"] = (image_tokens, image_mask)
+        fusion = self.fusion(modalities)
         moe = self.moe(fusion.prediction_embeds, fusion.prediction_mask)
         pooled = moe.pooled + self.history_skip(self._history_summary(serial, serial_mask))
         b, horizon = serial.size(0), self.config.forecast_horizon

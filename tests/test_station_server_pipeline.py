@@ -106,7 +106,7 @@ def test_five_csv_server_pipeline_is_two_modal_and_five_horizon(tmp_path: Path) 
     assert "images" not in batch
 
     model = IntegratedPVPhysicsMoE(load_config(config_path)).eval()
-    assert not hasattr(model, "image_encoder")
+    assert model.image_encoder is None
     with torch.no_grad():
         output = model(batch)
     assert output["prediction"].shape == (2, 5, 1)

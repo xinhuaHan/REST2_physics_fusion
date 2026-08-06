@@ -29,7 +29,12 @@ class NpzSolarDataset(Dataset):
         return len(self.arrays["serial"])
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        names = ("serial", "physics", "physics_raw", "future_zenith", "target", "images", "irradiance_target")
+        names = (
+            "serial", "physics", "physics_raw", "future_zenith", "target",
+            "serial_valid_mask", "physics_valid_mask", "target_valid_mask",
+            "images", "image_valid_mask", "image_time_offsets", "irradiance_target",
+            "irradiance_target_mask", "current_power",
+        )
         return {name: torch.from_numpy(np.asarray(self.arrays[name][index]).copy()).float() for name in names if name in self.arrays.files}
 
 

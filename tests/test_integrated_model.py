@@ -15,6 +15,18 @@ def small_config(target_mode: str = "power") -> ModelConfig:
     )
 
 
+def small_image_config() -> ModelConfig:
+    config = small_config()
+    config.use_image = True
+    config.image_channels = 3
+    config.image_size = 16
+    config.image_cnn_width = 4
+    config.image_temporal_layers = 1
+    config.image_temporal_heads = 4
+    config.validate()
+    return config
+
+
 def make_batch() -> dict:
     mu0 = torch.tensor([[0.8, 0.0], [0.35, 0.6]])
     return {
@@ -40,7 +52,7 @@ def test_rest2_feature_contract_and_clear_sky_closure():
 
 def test_integrated_two_modal_shapes_attention_and_pcd_closure():
     model = IntegratedPVPhysicsMoE(small_config())
-    assert not hasattr(model, "image_encoder")
+    assert model.image_encoder is None
     outputs = model(make_batch())
     assert outputs["prediction"].shape == (2, 2, 1)
     assert outputs["irradiance"].shape == (2, 2, 3)
@@ -52,6 +64,29 @@ def test_integrated_two_modal_shapes_attention_and_pcd_closure():
     assert torch.all(outputs["irradiance"] >= 0.0)
     assert torch.equal(outputs["irradiance"][0, 1], torch.zeros(3))
     assert outputs["power_prediction"][0, 1, 0] == 0.0
+
+
+def test_optional_image_modality_supports_partial_and_fully_missing_samples():
+    model = IntegratedPVPhysicsMoE(small_image_config())
+    batch = make_batch()
+    batch["images"] = torch.rand(2, 4, 3, 16, 16)
+    batch["image_valid_mask"] = torch.tensor([[1, 1, 0, 1], [0, 0, 0, 0]])
+    batch["image_time_offsets"] = torch.tensor([[-15.0, -10.0, -5.0, 0.0]]).expand(2, -1)
+    outputs = model(batch)
+    assert outputs["prediction"].shape == (2, 2, 1)
+    assert set(outputs["fusion_output"].modality_embeds) == {"serial", "physics", "image"}
+    assert torch.count_nonzero(outputs["fusion_output"].modality_embeds["image"][1]) == 0
+    assert "serial_from_image" in outputs["fusion_output"].attention_maps
+    assert torch.isfinite(outputs["prediction"]).all()
+
+
+def test_enabled_image_modality_accepts_batch_without_image_tensor():
+    model = IntegratedPVPhysicsMoE(small_image_config())
+    outputs = model(make_batch())
+    image_tokens = outputs["fusion_output"].modality_embeds["image"]
+    assert image_tokens.shape[:2] == (2, 1)
+    assert torch.count_nonzero(image_tokens) == 0
+    assert torch.isfinite(outputs["prediction"]).all()
 
 
 def test_end_to_end_backward_reaches_rest2_and_moe():

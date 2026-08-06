@@ -14,11 +14,25 @@ class IntegratedLoss(nn.Module):
         target = batch["target"].to(outputs["prediction"])
         if target.ndim == 2:
             target = target.unsqueeze(-1)
-        task = torch.nn.functional.mse_loss(outputs["prediction"], target)
-        irradiance = torch.zeros((), device=task.device)
+        task_mask = batch.get("target_valid_mask")
+        if task_mask is None:
+            task_mask = torch.ones_like(target[..., 0])
+        task_mask = task_mask.to(outputs["prediction"]).unsqueeze(-1)
+        task_denominator = task_mask.sum().clamp_min(1.0)
+        task = (((outputs["prediction"] - target) ** 2) * task_mask).sum() / task_denominator
+        irradiance = outputs["irradiance"].sum() * 0.0
         if "irradiance_target" in batch:
             irr_target = batch["irradiance_target"].to(outputs["irradiance"])
-            irradiance = torch.nn.functional.mse_loss(outputs["irradiance"], irr_target)
+            irr_mask = batch.get("irradiance_target_mask")
+            if irr_mask is None:
+                irr_mask = torch.ones_like(irr_target)
+            irr_mask = irr_mask.to(outputs["irradiance"])
+            valid = irr_mask.sum()
+            irradiance = torch.where(
+                valid > 0,
+                (((outputs["irradiance"] - irr_target) ** 2) * irr_mask).sum() / valid.clamp_min(1.0),
+                outputs["irradiance"].sum() * 0.0,
+            )
         raw_correction = torch.mean((outputs["raw_irradiance"] - outputs["clear_sky_prior"]) ** 2)
         total = (
             self.config.task_loss_weight * task

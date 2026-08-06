@@ -14,7 +14,7 @@ class FusionOutput:
 
 
 class PhysicsAwareCrossModalFusion(nn.Module):
-    """PVMMOE fusion for the station's serial and REST2 physics modalities."""
+    """Masked fusion for serial, REST2 physics and optional image modalities."""
     def __init__(self, input_dims: Mapping[str, int], hidden_size: int, num_heads: int = 8, dropout: float = 0.1, modality_order: tuple[str, ...] = ("serial", "physics")) -> None:
         super().__init__()
         self.hidden_size = hidden_size
@@ -50,13 +50,19 @@ class PhysicsAwareCrossModalFusion(nn.Module):
                 raise ValueError(f"{name} embeds/mask must be [B,L,D] and [B,L]")
             aligned[name] = self.projections[name](embeds)
             masks[name] = mask.to(embeds.device).long()
-        if set(aligned) != {"serial", "physics"}:
-            raise ValueError("station fusion requires exactly the serial and physics modalities")
+        expected = set(self.modality_order)
+        if set(aligned) != expected:
+            raise ValueError(
+                f"fusion requires configured modalities {sorted(expected)}, got {sorted(aligned)}"
+            )
+        if not {"serial", "physics"}.issubset(expected):
+            raise ValueError("fusion always requires the serial and physics modalities")
 
         attention_maps: Dict[str, torch.Tensor] = {}
         enhanced: Dict[str, torch.Tensor] = {}
         for query_name, query in aligned.items():
             updates = []
+            update_available = []
             for key_name, key_value in aligned.items():
                 if query_name == key_name:
                     continue
@@ -67,8 +73,11 @@ class PhysicsAwareCrossModalFusion(nn.Module):
                     update = update.masked_fill(all_masked[:, None, None], 0.0)
                     weights = weights.masked_fill(all_masked[:, None, None], 0.0)
                 updates.append(update)
+                update_available.append((~all_masked).to(update.dtype))
                 attention_maps[name] = weights.detach()
-            aggregate = torch.stack(updates).mean(0)
+            stacked_updates = torch.stack(updates, dim=0)
+            availability = torch.stack(update_available, dim=0)
+            aggregate = stacked_updates.sum(0) / availability.sum(0).clamp_min(1.0)[:, None, None]
             x = self.cross_norms[query_name](query + aggregate)
             x = self.ffn_norms[query_name](x + self.ffns[query_name](x))
             x = x * self.gates[query_name](x) * masks[query_name].unsqueeze(-1).to(x.dtype)

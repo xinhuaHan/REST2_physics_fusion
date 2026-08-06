@@ -1,0 +1,112 @@
+project:
+  seed: 42
+
+dataset:
+  name: YLJ
+  parquet_file: null  # TODO: fill the real YLJ Parquet path before constructing a dataset
+  timestamp_column: timestamp
+  target_column: observe_power
+  serial_columns:
+    - observe_power
+    - GHI_observe
+    - TEMP_observe
+    - WS_observe
+    - WD_observe
+    - PREC_observe
+    - PWAT_observe
+    - SDWE_observe
+    - GHI_forecast_1day
+    - TEMP_forecast_1day
+    - WS_forecast_1day
+    - WD_forecast_1day
+    - PREC_forecast_1day
+    - PWAT_forecast_1day
+    - SDWE_forecast_1day
+    - GHI_forecast_4hour
+    - TEMP_forecast_4hour
+    - WS_forecast_4hour
+    - WD_forecast_4hour
+    - PREC_forecast_4hour
+    - PWAT_forecast_4hour
+    - SDWE_forecast_4hour
+  irradiance_columns: {ghi: GHI_observe, dni: null, dhi: null}
+  sampling_interval_minutes: 15
+  history_points: 16
+  forecast_step_minutes: 15
+  forecast_steps: 16
+  forecast_horizon_minutes: 240
+  causal_fill: forward_fill
+  pressure_column: null
+  pressure_unit: pa
+  wind_columns: [WS_forecast_4hour]
+  precip_column: PREC_forecast_4hour
+  pwv_column: null  # PWAT units are unconfirmed; enable only together with pwv_to_cm
+  pwv_to_cm: null
+
+site:
+  longitude: 100.641
+  latitude: 29.919
+  altitude_m: 4300.0
+  timezone: Asia/Shanghai
+
+physics_defaults: {pressure_pa: 101325.0, pwv_cm: 1.5, aod700: 0.08, precip: 0.0}
+
+images:
+  enabled: false
+  root: null
+  paths_column: null
+  timestamps_column: null
+  max_frames: 16
+  channels: 3
+  size: 64
+  sampling_strategy: uniform
+  reject_future: true
+  history_minutes: 75
+
+normalization:
+  power_scale: null  # TODO: fill the verified YLJ capacity/scale
+  rated_power: null  # TODO: fill the verified YLJ rated capacity
+
+evaluation:
+  horizons_minutes: [15, 240]
+  nrmse_denominator: null  # TODO: required for official NRMSE/NMAE
+  hard_delta_fraction: 0.10
+  direction_min_delta_fraction: 0.02
+
+splits:
+  development: ["2024-01-01 00:00:00", "2025-01-01 00:00:00"]
+  validation_fraction: 0.15
+  test: ["2025-01-01 00:00:00", "2026-01-01 00:00:00"]
+
+runtime: {distributed: true, gpu_devices: "0,1,2,3,4,5,6,7", precision: fp16, num_workers: 4, pin_memory: true}
+
+model:
+  physics_input_dim: 26
+  hidden_size: 768
+  serial_layers: 2
+  fusion_heads: 8
+  moe_layers: 4
+  moe_heads: 8
+  num_experts: 8
+  num_shared_experts: 2
+  top_k_experts: 2
+  pcd_hidden_size: 128
+  pcd_layers: 2
+  target_mode: power
+  dropout: 0.1
+  raw_state_residual_scale: 500.0
+  night_cos_threshold: 0.0
+
+training:
+  batch_size: 16
+  epochs: 50
+  learning_rate: 0.0003
+  weight_decay: 0.00001
+  task_loss_weight: 1.0
+  irradiance_loss_weight: 0.2
+  moe_balance_weight: 0.01
+  raw_correction_weight: 0.000001
+  gradient_clip: 1.0
+  num_workers: 4
+  device: cuda
+  output_dir: outputs/ylj_parquet

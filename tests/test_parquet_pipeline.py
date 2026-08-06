@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+import copy
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+import torch
+from PIL import Image
+
+from pv_physics_moe import IntegratedPVPhysicsMoE, load_parquet_config
+from pv_physics_moe.data import ConfigurableParquetDataset, build_parquet_datasets, collate_parquet_batch
+from pv_physics_moe.evaluation import finalize_prediction_frame, official_metrics, prediction_records
+from pv_physics_moe.training.losses import IntegratedLoss
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def synthetic_frame(config, rows: int, start: str = "2024-01-01") -> pd.DataFrame:
+    cfg = config.dataset
+    times = pd.date_range(start, periods=rows, freq=f"{cfg.sampling_interval_minutes}min")
+    data = {cfg.timestamp_column: times}
+    for index, column in enumerate(cfg.serial_columns):
+        data[column] = np.arange(rows, dtype=np.float32) + index + 1
+    data[cfg.target_column] = np.arange(rows, dtype=np.float32) + 10
+    for column in cfg.irradiance_columns.values():
+        if column:
+            data[column] = np.maximum(0, np.sin(np.arange(rows) / 10.0) * 500).astype(np.float32)
+    if cfg.pressure_column:
+        data[cfg.pressure_column] = np.full(rows, 101325.0, np.float32)
+    if cfg.precip_column:
+        data[cfg.precip_column] = np.zeros(rows, np.float32)
+    return pd.DataFrame(data)
+
+
+def configure_synthetic(config, path: Path, start: str, end: str) -> None:
+    config.dataset.parquet_file = str(path)
+    config.site.latitude = 34.6
+    config.site.longitude = 112.4
+    config.site.altitude_m = 150.0
+    config.site.timezone = "Asia/Shanghai"
+    config.splits = {"train": [start, end], "val": [start, end], "test": [start, end]}
+
+
+def test_configs_derive_field_dimensions_and_forecast_steps():
+    ylj = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    luoyang = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
+    assert (ylj.model.serial_input_dim, ylj.model.forecast_horizon) == (22, 16)
+    assert (luoyang.model.serial_input_dim, luoyang.model.forecast_horizon) == (9, 48)
+    changed = copy.deepcopy(ylj)
+    changed.dataset.sampling_interval_minutes = 5
+    changed.dataset.forecast_step_minutes = 5
+    changed.dataset.forecast_steps = None
+    changed.validate()
+    assert changed.model.forecast_horizon == 48
+
+
+def test_synthetic_ylj_parquet_is_16_steps_and_missing_dni_dhi_are_masked(tmp_path: Path):
+    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    frame = synthetic_frame(config, 64)
+    path = tmp_path / "ylj.parquet"
+    frame.to_parquet(path)
+    configure_synthetic(config, path, "2024-01-01", "2024-01-02")
+    datasets = build_parquet_datasets(config)
+    batch = collate_parquet_batch([datasets["train"][0], datasets["train"][1]])
+    assert batch["serial"].shape == (2, 16, 22)
+    assert batch["physics"].shape == (2, 16, 26)
+    assert batch["target"].shape == (2, 16, 1)
+    assert torch.all(batch["irradiance_target_mask"][..., 0] == 1)
+    assert torch.all(batch["irradiance_target_mask"][..., 1:] == 0)
+    horizons = [int((pd.Timestamp(t) - pd.Timestamp(batch["issue_time"][0])).total_seconds() / 60) for t in batch["target_times"][0]]
+    assert horizons == list(range(15, 241, 15))
+
+    enabled = copy.deepcopy(config)
+    enabled.dataset.irradiance_columns["dni"] = "DNI"
+    enabled.dataset.irradiance_columns["dhi"] = "DHI"
+    frame["DNI"] = np.arange(len(frame), dtype=np.float32) + 2
+    frame["DHI"] = np.arange(len(frame), dtype=np.float32) + 3
+    full_supervision = ConfigurableParquetDataset(enabled, "train", frame=frame)[0]
+    assert torch.all(full_supervision["irradiance_target_mask"] == 1)
+
+
+def test_luoyang_parquet_images_offsets_masks_and_48_targets(tmp_path: Path):
+    config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
+    frame = synthetic_frame(config, 90, "2026-04-05")
+    image_root = tmp_path / "images"
+    image_root.mkdir()
+    Image.fromarray(np.full((8, 8, 3), 127, np.uint8)).save(image_root / "sky.png")
+    paths, stamps = [], []
+    for time in frame["timestamp"]:
+        paths.append(["sky.png", "missing.png"])
+        stamps.append([(time - pd.Timedelta(minutes=10)).isoformat(), time.isoformat()])
+    frame["asi_path"] = paths
+    frame["asi_path_timestamps"] = stamps
+    path = tmp_path / "luoyang.parquet"
+    frame.to_parquet(path)
+    configure_synthetic(config, path, "2026-04-05", "2026-04-06")
+    config.images.root = str(image_root)
+    dataset = ConfigurableParquetDataset(config, "train")
+    sample = dataset[0]
+    assert sample["target"].shape == (48, 1)
+    assert sample["images"].shape == (16, 3, 64, 64)
+    assert sample["image_valid_mask"].sum() == 1
+    assert -75 <= float(sample["image_time_offsets"][0]) <= 0
+    assert pd.Timestamp(sample["target_times"][-1]) - pd.Timestamp(sample["issue_time"]) == pd.Timedelta(minutes=240)
+
+
+def test_rejects_granularity_mismatch_duplicates_and_future_images(tmp_path: Path):
+    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    frame = synthetic_frame(config, 40)
+    frame.loc[2:, "timestamp"] += pd.Timedelta(minutes=1)
+    configure_synthetic(config, tmp_path / "bad.parquet", "2024-01-01", "2024-01-02")
+    with pytest.raises(ValueError, match="expected 15 minutes, actual 16 minutes"):
+        ConfigurableParquetDataset(config, "train", frame=frame)
+    duplicate = synthetic_frame(config, 40)
+    duplicate.loc[2, "timestamp"] = duplicate.loc[1, "timestamp"]
+    with pytest.raises(ValueError, match="duplicate timestamp"):
+        ConfigurableParquetDataset(config, "train", frame=duplicate)
+
+    luoyang = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
+    image_frame = synthetic_frame(luoyang, 80, "2026-04-05")
+    image_frame["asi_path"] = [["x.png"] for _ in range(len(image_frame))]
+    image_frame["asi_path_timestamps"] = [[(time + pd.Timedelta(minutes=1)).isoformat()] for time in image_frame["timestamp"]]
+    configure_synthetic(luoyang, tmp_path / "future.parquet", "2026-04-05", "2026-04-06")
+    luoyang.images.root = str(tmp_path)
+    dataset = ConfigurableParquetDataset(luoyang, "train", frame=image_frame)
+    with pytest.raises(ValueError, match="future image"):
+        dataset[0]
+
+
+def test_rejects_image_list_length_mismatch(tmp_path: Path):
+    config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
+    frame = synthetic_frame(config, 80, "2026-04-05")
+    frame["asi_path"] = [["a.png", "b.png"] for _ in range(len(frame))]
+    frame["asi_path_timestamps"] = [[time.isoformat()] for time in frame["timestamp"]]
+    configure_synthetic(config, tmp_path / "lists.parquet", "2026-04-05", "2026-04-06")
+    config.images.root = str(tmp_path)
+    dataset = ConfigurableParquetDataset(config, "train", frame=frame)
+    with pytest.raises(ValueError, match="length mismatch"):
+        dataset[0]
+
+
+def test_training_normalization_never_reads_validation_values():
+    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    frame = synthetic_frame(config, 96)
+    frame.loc[64:, config.dataset.serial_columns] = 1_000_000.0
+    config.site.timezone = "Asia/Shanghai"
+    config.splits = {
+        "train": ["2024-01-01", "2024-01-01 16:00:00"],
+        "val": ["2024-01-01 16:00:00", "2024-01-02"],
+    }
+    train = ConfigurableParquetDataset(config, "train", frame=frame)
+    assert float(train.normalization.serial_mean.max()) < 1000.0
+    val = ConfigurableParquetDataset(config, "val", normalization=train.normalization, frame=frame)
+    assert val.normalization is train.normalization
+
+
+def test_irradiance_loss_is_finite_with_no_valid_dni_dhi():
+    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    config.model.hidden_size = 32
+    config.model.serial_layers = 1
+    config.model.fusion_heads = 4
+    config.model.moe_layers = 1
+    config.model.moe_heads = 4
+    config.model.num_experts = 2
+    config.model.num_shared_experts = 1
+    config.model.top_k_experts = 1
+    config.model.pcd_hidden_size = 16
+    config.model.pcd_layers = 1
+    model = IntegratedPVPhysicsMoE(config.model)
+    batch = {
+        "serial": torch.rand(2, 16, 22),
+        "physics": torch.rand(2, 16, 26),
+        "physics_raw": torch.rand(2, 16, 26),
+        "future_zenith": torch.full((2, 16), 30.0),
+        "target": torch.rand(2, 16, 1),
+        "target_valid_mask": torch.ones(2, 16),
+        "irradiance_target": torch.zeros(2, 16, 3),
+        "irradiance_target_mask": torch.zeros(2, 16, 3),
+    }
+    output = model(batch)
+    losses = IntegratedLoss(config.training)(output, batch)
+    assert losses["irradiance_loss"] == 0
+    assert torch.isfinite(losses["loss"])
+    losses["loss"].backward()
+
+
+def test_prediction_export_counts_and_metrics_select_horizon_minutes():
+    evaluation = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml").evaluation
+    batch = {
+        "issue_time": ["2026-04-05T00:00:00"],
+        "target_times": [[(pd.Timestamp("2026-04-05") + pd.Timedelta(minutes=5 * step)).isoformat() for step in range(1, 49)]],
+        "target": torch.arange(48, dtype=torch.float32).view(1, 48, 1),
+        "current_power": torch.tensor([[0.0]]),
+    }
+    prediction = batch["target"] + 10.0
+    records = prediction_records(batch, prediction)
+    frame = finalize_prediction_frame(records, 48)
+    assert len(frame) == 48
+    metrics = official_metrics(frame, evaluation)
+    assert set(metrics["horizons_minutes"]) == {"15", "240"}
+    assert metrics["horizons_minutes"]["15"]["overall"]["RMSE"] == pytest.approx(10.0)
+    assert metrics["horizons_minutes"]["240"]["overall"]["NMAE"] == pytest.approx(10.0 / 48629.73)
+
+    ylj_times = [[(pd.Timestamp("2024-01-01") + pd.Timedelta(minutes=15 * step)).isoformat() for step in range(1, 17)]]
+    ylj_batch = {
+        **batch, "issue_time": ["2024-01-01T00:00:00"],
+        "target_times": ylj_times, "target": torch.zeros(1, 16, 1),
+    }
+    assert len(finalize_prediction_frame(prediction_records(ylj_batch, torch.zeros(1, 16, 1)), 16)) == 16
+
+
+@pytest.mark.skipif(
+    not torch.distributed.is_available() or sys.platform == "win32",
+    reason="the local Windows PyTorch build has no supported gloo device; run this automated smoke on Linux",
+)
+def test_two_process_cpu_gloo_smoke():
+    command = [
+        sys.executable, str(ROOT / "scripts" / "ddp_cpu_smoke.py"),
+    ]
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "DDP smoke passed" in result.stdout

@@ -34,6 +34,13 @@ def _expand_environment(value: Any) -> Any:
 class ModelConfig:
     serial_input_dim: int = 13
     physics_input_dim: int = 26
+    use_image: bool = False
+    image_channels: int = 3
+    image_size: int = 64
+    image_cnn_width: int = 32
+    image_temporal_layers: int = 1
+    image_temporal_heads: int = 8
+    image_time_scale_minutes: float = 5.0
     hidden_size: int = 768
     serial_layers: int = 2
     fusion_heads: int = 8
@@ -55,6 +62,14 @@ class ModelConfig:
             raise ValueError("model.target_mode must be 'power' or 'irradiance'")
         if self.hidden_size % self.fusion_heads or self.hidden_size % self.moe_heads:
             raise ValueError("hidden_size must be divisible by fusion_heads and moe_heads")
+        if self.use_image and self.hidden_size % self.image_temporal_heads:
+            raise ValueError("hidden_size must be divisible by image_temporal_heads")
+        if self.image_channels <= 0 or self.image_size <= 0 or self.image_cnn_width <= 0:
+            raise ValueError("image_channels, image_size and image_cnn_width must be positive")
+        if self.image_temporal_layers < 1 or self.image_temporal_heads < 1:
+            raise ValueError("image temporal layers and heads must be positive")
+        if self.image_time_scale_minutes <= 0:
+            raise ValueError("image_time_scale_minutes must be positive")
         if not 1 <= self.top_k_experts <= self.num_experts:
             raise ValueError("top_k_experts must be in [1, num_experts]")
         if self.physics_input_dim != 26:

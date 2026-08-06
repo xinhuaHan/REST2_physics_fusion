@@ -373,3 +373,8 @@ git check-ignore -v outputs\station\checkpoint_last.pt
 ## 11. 说明
 
 仓库当前未自动附加开源许可证。若计划公开开源，请在确认代码和数据授权后再选择并添加合适的 `LICENSE`；如果仅用于私有协作，可直接创建 Private repository。
+
+# YLJ / Luoyang Parquet pipeline
+
+The configuration-driven Parquet training, DDP evaluation, image handling, and
+official horizon rules are documented in [docs/PARQUET_PIPELINE_ZH.md](docs/PARQUET_PIPELINE_ZH.md).

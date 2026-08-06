@@ -1,0 +1,92 @@
+project:
+  seed: 42
+
+dataset:
+  name: Luoyang
+  parquet_file: /data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1.parquet
+  timestamp_column: timestamp
+  target_column: final_power
+  serial_columns: [final_power, GHI_mean_observe, GHI_mean_forecast, msl_forecast, t2m_forecast, u10_forecast, v10_forecast, u100_forecast, v100_forecast]
+  irradiance_columns: {ghi: GHI_mean_observe, dni: null, dhi: null}
+  sampling_interval_minutes: 5
+  history_points: 16
+  forecast_step_minutes: 5
+  forecast_steps: 48
+  forecast_horizon_minutes: 240
+  causal_fill: forward_fill
+  pressure_column: msl_forecast
+  pressure_unit: pa
+  wind_columns: [u10_forecast, v10_forecast]
+  precip_column: null
+  pwv_column: null
+  pwv_to_cm: null
+
+site:
+  latitude: null  # TODO: fill verified Luoyang site latitude before dataset construction
+  longitude: null # TODO: fill verified Luoyang site longitude before dataset construction
+  altitude_m: null # TODO: enables MSL-to-station pressure conversion
+  timezone: null   # TODO: fill the source timestamp timezone
+
+physics_defaults: {pressure_pa: 101325.0, pwv_cm: 1.5, aod700: 0.08, precip: 0.0}
+
+images:
+  enabled: true
+  root: /home/ma-user/work/john/IMAGE/Luoyang/Luoyang_EKO_ASI_resized_64
+  paths_column: asi_path
+  timestamps_column: asi_path_timestamps
+  max_frames: 16
+  channels: 3
+  size: 64
+  sampling_strategy: uniform
+  reject_future: true
+  history_minutes: 75
+
+normalization: {power_scale: 48629.73, rated_power: 48629.73}
+
+evaluation:
+  horizons_minutes: [15, 240]
+  nrmse_denominator: 48629.73
+  hard_delta_fraction: 0.10
+  direction_min_delta_fraction: 0.02
+
+splits:
+  development: ["2026-04-05 00:00:00", "2026-05-11 00:00:00"]
+  validation_fraction: 0.15
+  test: ["2026-05-11 00:00:00", "2026-06-12 00:00:00"]
+
+runtime: {distributed: true, gpu_devices: "0,1,2,3,4,5,6,7", precision: fp16, num_workers: 4, pin_memory: true}
+
+model:
+  physics_input_dim: 26
+  image_cnn_width: 32
+  image_temporal_layers: 1
+  image_temporal_heads: 8
+  image_time_scale_minutes: 5.0
+  hidden_size: 768
+  serial_layers: 2
+  fusion_heads: 8
+  moe_layers: 4
+  moe_heads: 8
+  num_experts: 8
+  num_shared_experts: 2
+  top_k_experts: 2
+  pcd_hidden_size: 128
+  pcd_layers: 2
+  target_mode: power
+  dropout: 0.1
+  raw_state_residual_scale: 500.0
+  night_cos_threshold: 0.0
+
+training:
+  batch_size: 16
+  epochs: 50
+  learning_rate: 0.0003
+  weight_decay: 0.00001
+  task_loss_weight: 1.0
+  irradiance_loss_weight: 0.2
+  moe_balance_weight: 0.01
+  raw_correction_weight: 0.000001
+  gradient_clip: 1.0
+  num_workers: 4
+  device: cuda
+  output_dir: outputs/luoyang_parquet

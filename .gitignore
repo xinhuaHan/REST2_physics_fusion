@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+outputs/
+*.parquet
+*.pt
+*.pth
+*.ckpt
+*.log
+.venv/
+venv/
