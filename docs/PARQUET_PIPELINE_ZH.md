@@ -9,11 +9,23 @@
 
 ## 训练前必须补齐的配置
 
-YLJ 的 [配置文件](../configs/ylj_parquet.yaml) 仍需填写：
+YLJ 的 [配置文件](../configs/ylj_parquet.yaml) 使用：
 
-- `dataset.parquet_file`；
-- 经验证的 `normalization.power_scale`、`normalization.rated_power` 和 `evaluation.nrmse_denominator`；
-- 只有确认 PWAT 单位后，才可同时填写 `dataset.pwv_column` 与 `dataset.pwv_to_cm`。
+- `/data/PVMMoE/DATA/01-Solar/YLJ/Benchmark/YLJ-Unified_format-with_DNI_DHI.parquet`；
+- 功率单位 MW，`power_scale`、`rated_power` 和 NRMSE/NMAE 分母均为 `468.0`；
+- `DNI_observe`、`DHI_observe` 已配置为辅助监督；
+- 源 PWAT 单位为毫米，`PWAT_observe * 0.1` 转换为 REST2 使用的厘米。
+
+首次在服务器运行前，使用只读检查脚本验证真实 schema、15 分钟颗粒度、DNI/DHI 覆盖与 PWAT 分位数：
+
+```bash
+python scripts/inspect_ylj_parquet.py \
+  --parquet /data/PVMMoE/DATA/01-Solar/YLJ/Benchmark/YLJ-Unified_format-with_DNI_DHI.parquet \
+  --pwat-unit mm \
+  --output-json outputs/ylj_parquet_inspection.json
+```
+
+检查不通过时脚本返回非零退出码；不会修改 Parquet，也不会启动训练。
 
 Luoyang 的 [配置文件](../configs/luoyang_parquet.yaml) 已包含 Parquet、图片路径和 48629.73 容量，但仍需填写经验证的 `site.latitude`、`site.longitude`、`site.altitude_m` 与 `site.timezone`。缺失经纬度或时区时，配置静态解析可以通过，首次构建太阳几何样本会明确失败，不会借用其他站点参数。缺少海拔时不会把 MSL 静默当成站点气压，而使用 `physics_defaults.pressure_pa` 并在 checkpoint metadata 中记录来源为 default。
 

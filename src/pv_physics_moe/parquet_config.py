@@ -28,6 +28,7 @@ class ParquetDatasetConfig:
     wind_columns: list[str] = field(default_factory=list)
     precip_column: str | None = None
     pwv_column: str | None = None
+    pwv_unit: str | None = None
     pwv_to_cm: float | None = None
 
     def validate(self) -> None:
@@ -50,8 +51,19 @@ class ParquetDatasetConfig:
             raise ValueError("dataset.history_points must be positive")
         if self.causal_fill not in {"forward_fill", "none"}:
             raise ValueError("dataset.causal_fill must be forward_fill or none")
-        if self.pwv_column and self.pwv_to_cm is None:
-            raise ValueError("dataset.pwv_to_cm is required before a PWV/PWAT column can be used")
+        if self.pwv_column and (self.pwv_unit is None or self.pwv_to_cm is None):
+            raise ValueError(
+                "dataset.pwv_unit and dataset.pwv_to_cm are required before a PWV/PWAT column can be used"
+            )
+        expected_pwv_factors = {"mm": 0.1, "cm": 1.0, "kg_m2": 0.1}
+        if self.pwv_unit is not None:
+            if self.pwv_unit not in expected_pwv_factors:
+                raise ValueError("dataset.pwv_unit must be one of: mm, cm, kg_m2")
+            expected_factor = expected_pwv_factors[self.pwv_unit]
+            if self.pwv_to_cm is None or abs(self.pwv_to_cm - expected_factor) > 1e-12:
+                raise ValueError(
+                    f"dataset.pwv_unit={self.pwv_unit} requires pwv_to_cm={expected_factor}"
+                )
 
 
 @dataclass

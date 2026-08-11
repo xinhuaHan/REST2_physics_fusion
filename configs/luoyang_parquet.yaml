@@ -19,6 +19,7 @@ dataset:
   wind_columns: [u10_forecast, v10_forecast]
   precip_column: null
   pwv_column: null
+  pwv_unit: null
   pwv_to_cm: null
 
 site:

@@ -51,6 +51,16 @@ def test_configs_derive_field_dimensions_and_forecast_steps():
     ylj = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
     luoyang = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
     assert (ylj.model.serial_input_dim, ylj.model.forecast_horizon) == (22, 16)
+    assert ylj.dataset.parquet_file.endswith("YLJ-Unified_format-with_DNI_DHI.parquet")
+    assert ylj.dataset.irradiance_columns == {
+        "ghi": "GHI_observe", "dni": "DNI_observe", "dhi": "DHI_observe"
+    }
+    assert ylj.dataset.pwv_column == "PWAT_observe"
+    assert ylj.dataset.pwv_unit == "mm"
+    assert ylj.dataset.pwv_to_cm == pytest.approx(0.1)
+    assert ylj.normalization.power_scale == pytest.approx(468.0)
+    assert ylj.normalization.rated_power == pytest.approx(468.0)
+    assert ylj.evaluation.nrmse_denominator == pytest.approx(468.0)
     assert (luoyang.model.serial_input_dim, luoyang.model.forecast_horizon) == (9, 48)
     changed = copy.deepcopy(ylj)
     changed.dataset.sampling_interval_minutes = 5
@@ -60,7 +70,7 @@ def test_configs_derive_field_dimensions_and_forecast_steps():
     assert changed.model.forecast_horizon == 48
 
 
-def test_synthetic_ylj_parquet_is_16_steps_and_missing_dni_dhi_are_masked(tmp_path: Path):
+def test_synthetic_ylj_parquet_is_16_steps_with_dni_dhi_and_pwat_conversion(tmp_path: Path):
     config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
     frame = synthetic_frame(config, 64)
     path = tmp_path / "ylj.parquet"
@@ -71,18 +81,46 @@ def test_synthetic_ylj_parquet_is_16_steps_and_missing_dni_dhi_are_masked(tmp_pa
     assert batch["serial"].shape == (2, 16, 22)
     assert batch["physics"].shape == (2, 16, 26)
     assert batch["target"].shape == (2, 16, 1)
-    assert torch.all(batch["irradiance_target_mask"][..., 0] == 1)
-    assert torch.all(batch["irradiance_target_mask"][..., 1:] == 0)
+    assert torch.all(batch["irradiance_target_mask"] == 1)
     horizons = [int((pd.Timestamp(t) - pd.Timestamp(batch["issue_time"][0])).total_seconds() / 60) for t in batch["target_times"][0]]
     assert horizons == list(range(15, 241, 15))
+    first_issue = datasets["train"].issue_indices[0]
+    raw_pwat_mm = float(frame.loc[first_issue, "PWAT_observe"])
+    assert torch.allclose(batch["physics_raw"][0, :, 7], torch.full((16,), raw_pwat_mm * 0.1))
 
-    enabled = copy.deepcopy(config)
-    enabled.dataset.irradiance_columns["dni"] = "DNI"
-    enabled.dataset.irradiance_columns["dhi"] = "DHI"
-    frame["DNI"] = np.arange(len(frame), dtype=np.float32) + 2
-    frame["DHI"] = np.arange(len(frame), dtype=np.float32) + 3
-    full_supervision = ConfigurableParquetDataset(enabled, "train", frame=frame)[0]
-    assert torch.all(full_supervision["irradiance_target_mask"] == 1)
+    missing = copy.deepcopy(config)
+    missing.dataset.irradiance_columns["dni"] = None
+    missing.dataset.irradiance_columns["dhi"] = None
+    missing_supervision = ConfigurableParquetDataset(missing, "train", frame=frame)[0]
+    assert torch.all(missing_supervision["irradiance_target_mask"][:, 0] == 1)
+    assert torch.all(missing_supervision["irradiance_target_mask"][:, 1:] == 0)
+
+
+def test_ylj_inspection_script_reports_schema_cadence_and_mm_pwat(tmp_path: Path):
+    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    frame = synthetic_frame(config, 80)
+    parquet = tmp_path / "YLJ-Unified_format-with_DNI_DHI.parquet"
+    report_path = tmp_path / "inspection.json"
+    frame.to_parquet(parquet)
+    result = subprocess.run(
+        [
+            sys.executable, str(ROOT / "scripts" / "inspect_ylj_parquet.py"),
+            "--parquet", str(parquet), "--pwat-unit", "mm", "--output-json", str(report_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["usable"] is True
+    assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(15.0)
+    assert report["schema"]["missing_expected_columns"] == []
+    assert report["numeric"]["DNI_observe"]["finite"] == len(frame)
+    assert report["numeric"]["DHI_observe"]["finite"] == len(frame)
+    assert report["pwat_unit_check"]["inferred_unit"] == "mm"
+    assert report["pwat_unit_check"]["mm_to_cm_factor"] == pytest.approx(0.1)
 
 
 def test_luoyang_parquet_images_offsets_masks_and_48_targets(tmp_path: Path):

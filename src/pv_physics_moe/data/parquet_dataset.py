@@ -209,6 +209,7 @@ class ConfigurableParquetDataset(Dataset):
             "solar_geometry": "derived",
             "pressure_pa": "derived_from_msl" if cfg.pressure_column and self.config.site.altitude_m is not None else "default",
             "pwv_cm": "observed_converted" if cfg.pwv_column else "default",
+            "pwv_source_unit": cfg.pwv_unit or "not_configured",
             "aod700": "default",
             "precip": "observed" if cfg.precip_column else "default",
         }

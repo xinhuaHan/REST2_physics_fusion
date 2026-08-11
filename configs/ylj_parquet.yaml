@@ -3,7 +3,7 @@ project:
 
 dataset:
   name: YLJ
-  parquet_file: null  # TODO: fill the real YLJ Parquet path before constructing a dataset
+  parquet_file: /data/PVMMoE/DATA/01-Solar/YLJ/Benchmark/YLJ-Unified_format-with_DNI_DHI.parquet
   timestamp_column: timestamp
   target_column: observe_power
   serial_columns:
@@ -29,7 +29,7 @@ dataset:
     - PREC_forecast_4hour
     - PWAT_forecast_4hour
     - SDWE_forecast_4hour
-  irradiance_columns: {ghi: GHI_observe, dni: null, dhi: null}
+  irradiance_columns: {ghi: GHI_observe, dni: DNI_observe, dhi: DHI_observe}
   sampling_interval_minutes: 15
   history_points: 16
   forecast_step_minutes: 15
@@ -40,8 +40,9 @@ dataset:
   pressure_unit: pa
   wind_columns: [WS_forecast_4hour]
   precip_column: PREC_forecast_4hour
-  pwv_column: null  # PWAT units are unconfirmed; enable only together with pwv_to_cm
-  pwv_to_cm: null
+  pwv_column: PWAT_observe
+  pwv_unit: mm
+  pwv_to_cm: 0.1  # source PWAT is millimetres; REST2 expects centimetres
 
 site:
   longitude: 100.641
@@ -64,19 +65,19 @@ images:
   history_minutes: 75
 
 normalization:
-  power_scale: null  # TODO: fill the verified YLJ capacity/scale
-  rated_power: null  # TODO: fill the verified YLJ rated capacity
+  power_scale: 468.0
+  rated_power: 468.0
 
 evaluation:
   horizons_minutes: [15, 240]
-  nrmse_denominator: null  # TODO: required for official NRMSE/NMAE
+  nrmse_denominator: 468.0
   hard_delta_fraction: 0.10
   direction_min_delta_fraction: 0.02
 
 splits:
   development: ["2024-01-01 00:00:00", "2025-01-01 00:00:00"]
   validation_fraction: 0.15
-  test: ["2025-01-01 00:00:00", "2026-01-01 00:00:00"]
+  test: ["2025-01-01 00:00:00", "2025-06-01 00:00:00"]
 
 runtime: {distributed: true, gpu_devices: "0,1,2,3,4,5,6,7", precision: fp16, num_workers: 4, pin_memory: true}
 
