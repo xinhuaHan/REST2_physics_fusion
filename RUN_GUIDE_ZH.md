@@ -629,3 +629,52 @@ evaluate_station.py（分时距评估）
 ```
 
 模型架构和汇报说明见 `MODEL_ARCHITECTURE_REPORT_ZH.md`，服务器数据对齐细节见 `SERVER_RUN_ZH.md`。
+
+---
+
+## 14. YLJ Parquet 正式训练命令（Linux 8 卡）
+
+本节使用 `configs/ylj_parquet.yaml`，对应真实数据文件：
+
+```text
+/data/PVMMoE/DATA/01-Solar/YLJ/Benchmark/YLJ-Unified_format-with_DNI_DHI.parquet
+```
+
+该配置固定预测未来 4 小时：15 分钟颗粒度时输出 16 步（`t+15` 至 `t+240`），正式指标只统计 `horizon_minutes=15` 和 `240`，NRMSE/NMAE 分母为 468 MW。执行正式训练前依次运行以下命令。
+
+```bash
+# 0. 进入仓库并取得包含 YLJ 配置的 why 分支
+cd /path/to/REST2_physics_fusion_Aligned_Model
+git fetch origin
+git switch why
+git pull --ff-only origin why
+
+# 1. 只读检查真实 Parquet：schema、15 分钟颗粒度、功率、DNI/DHI 和 PWAT 单位
+python scripts/inspect_ylj_parquet.py \
+  --parquet /data/PVMMoE/DATA/01-Solar/YLJ/Benchmark/YLJ-Unified_format-with_DNI_DHI.parquet \
+  --pwat-unit mm \
+  --output-json outputs/ylj_parquet_inspection.json
+
+# 2. 单卡真实数据 smoke：仅 1 epoch、最多 4 个样本；成功后再启动正式训练
+CUDA_VISIBLE_DEVICES=0 \
+python scripts/train_parquet.py \
+  --config configs/ylj_parquet.yaml \
+  --smoke \
+  --output-dir outputs/ylj_parquet_smoke
+
+# 3. 正式 8 卡 V100S DDP 训练
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
+  --config configs/ylj_parquet.yaml \
+  --output-dir outputs/ylj_parquet
+
+# 4. 正式测试集分布式评测和结果导出
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
+  --config configs/ylj_parquet.yaml \
+  --checkpoint outputs/ylj_parquet/checkpoint_last.pt \
+  --output-dir outputs/ylj_official_test \
+  --split test
+```
+
+第 1 步必须以退出码 0 完成；该脚本不会修改 Parquet。第 2 步成功后会生成 `outputs/ylj_parquet_smoke/checkpoint_smoke.pt`。正式训练完成后生成 `outputs/ylj_parquet/checkpoint_last.pt`；评测目录包含 `point_predictions.csv` 和 `official_test_metrics.json`。负功率会按配置截断到 0 MW，缺失功率不会被插值或后向填充。
