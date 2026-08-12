@@ -89,6 +89,12 @@ def main() -> None:
     loss_fn = IntegratedLoss(config.training)
     amp_enabled = device.type == "cuda" and config.runtime.precision == "fp16"
     scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    if rank == 0:
+        print(
+            f"precision={'fp16 AMP' if amp_enabled else 'fp32'} "
+            f"(parquet physics features are {'AMP' if amp_enabled else 'not AMP'}-cast)",
+            flush=True,
+        )
     for epoch in range(config.training.epochs):
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)

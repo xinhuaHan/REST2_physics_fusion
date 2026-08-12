@@ -61,6 +61,7 @@ def test_configs_derive_field_dimensions_and_forecast_steps():
     assert ylj.dataset.pwv_column == "PWAT-NWP_observe"
     assert ylj.dataset.pwv_unit == "mm"
     assert ylj.dataset.pwv_to_cm == pytest.approx(0.1)
+    assert ylj.runtime.precision == "fp32"
     assert ylj.normalization.power_scale == pytest.approx(468.0)
     assert ylj.normalization.rated_power == pytest.approx(468.0)
     assert ylj.evaluation.nrmse_denominator == pytest.approx(468.0)
