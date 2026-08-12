@@ -31,6 +31,8 @@ def synthetic_frame(config, rows: int, start: str = "2024-01-01") -> pd.DataFram
     for column in cfg.irradiance_columns.values():
         if column:
             data[column] = np.maximum(0, np.sin(np.arange(rows) / 10.0) * 500).astype(np.float32)
+    if cfg.name == "YLJ":
+        data["GHI-NWP_observe"] = np.arange(rows, dtype=np.float32) + 1
     if cfg.pressure_column:
         data[cfg.pressure_column] = np.full(rows, 101325.0, np.float32)
     if cfg.precip_column:
@@ -53,9 +55,10 @@ def test_configs_derive_field_dimensions_and_forecast_steps():
     assert (ylj.model.serial_input_dim, ylj.model.forecast_horizon) == (22, 16)
     assert ylj.dataset.parquet_file.endswith("YLJ-Unified_format-with_DNI_DHI.parquet")
     assert ylj.dataset.irradiance_columns == {
-        "ghi": "GHI_observe", "dni": "DNI_observe", "dhi": "DHI_observe"
+        "ghi": "observe_ghi-onsite", "dni": "estimated_DNI-onsite", "dhi": "estimated_DHI-onsite"
     }
-    assert ylj.dataset.pwv_column == "PWAT_observe"
+    assert ylj.dataset.irradiance_sources == {"ghi": "observed", "dni": "estimated", "dhi": "estimated"}
+    assert ylj.dataset.pwv_column == "PWAT-NWP_observe"
     assert ylj.dataset.pwv_unit == "mm"
     assert ylj.dataset.pwv_to_cm == pytest.approx(0.1)
     assert ylj.normalization.power_scale == pytest.approx(468.0)
@@ -85,7 +88,7 @@ def test_synthetic_ylj_parquet_is_16_steps_with_dni_dhi_and_pwat_conversion(tmp_
     horizons = [int((pd.Timestamp(t) - pd.Timestamp(batch["issue_time"][0])).total_seconds() / 60) for t in batch["target_times"][0]]
     assert horizons == list(range(15, 241, 15))
     first_issue = datasets["train"].issue_indices[0]
-    raw_pwat_mm = float(frame.loc[first_issue, "PWAT_observe"])
+    raw_pwat_mm = float(frame.loc[first_issue, "PWAT-NWP_observe"])
     assert torch.allclose(batch["physics_raw"][0, :, 7], torch.full((16,), raw_pwat_mm * 0.1))
 
     missing = copy.deepcopy(config)
@@ -94,6 +97,18 @@ def test_synthetic_ylj_parquet_is_16_steps_with_dni_dhi_and_pwat_conversion(tmp_
     missing_supervision = ConfigurableParquetDataset(missing, "train", frame=frame)[0]
     assert torch.all(missing_supervision["irradiance_target_mask"][:, 0] == 1)
     assert torch.all(missing_supervision["irradiance_target_mask"][:, 1:] == 0)
+
+
+def test_ylj_target_floor_clips_negative_power_but_rejects_missing_targets():
+    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    frame = synthetic_frame(config, 64)
+    frame.loc[16, config.dataset.target_column] = -1.5
+    frame.loc[32, config.dataset.target_column] = np.nan
+    dataset = ConfigurableParquetDataset(config, "train", frame=frame)
+    assert dataset.metadata["target_floor"] == 0.0
+    assert dataset.metadata["target_floor_clipped_count"] == 1
+    assert dataset[0]["target"][0, 0] == 0.0
+    assert all(32 not in dataset._future_indices(issue) for issue in dataset.issue_indices)
 
 
 def test_ylj_inspection_script_reports_schema_cadence_and_mm_pwat(tmp_path: Path):
@@ -117,8 +132,8 @@ def test_ylj_inspection_script_reports_schema_cadence_and_mm_pwat(tmp_path: Path
     assert report["usable"] is True
     assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(15.0)
     assert report["schema"]["missing_expected_columns"] == []
-    assert report["numeric"]["DNI_observe"]["finite"] == len(frame)
-    assert report["numeric"]["DHI_observe"]["finite"] == len(frame)
+    assert report["numeric"]["estimated_DNI-onsite"]["finite"] == len(frame)
+    assert report["numeric"]["estimated_DHI-onsite"]["finite"] == len(frame)
     assert report["pwat_unit_check"]["inferred_unit"] == "mm"
     assert report["pwat_unit_check"]["mm_to_cm_factor"] == pytest.approx(0.1)
 

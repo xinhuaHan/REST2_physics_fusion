@@ -13,8 +13,9 @@ YLJ 的 [配置文件](../configs/ylj_parquet.yaml) 使用：
 
 - `/data/PVMMoE/DATA/01-Solar/YLJ/Benchmark/YLJ-Unified_format-with_DNI_DHI.parquet`；
 - 功率单位 MW，`power_scale`、`rated_power` 和 NRMSE/NMAE 分母均为 `468.0`；
-- `DNI_observe`、`DHI_observe` 已配置为辅助监督；
-- 源 PWAT 单位为毫米，`PWAT_observe * 0.1` 转换为 REST2 使用的厘米。
+- `observe_ghi-onsite` 为现场 GHI；`estimated_DNI-onsite`、`estimated_DHI-onsite` 为估算 DNI/DHI，已配置为辅助监督并在 metadata 中标明来源；
+- 源 PWAT 列 `PWAT-NWP_observe` 的单位为毫米，乘以 `0.1` 转换为 REST2 使用的厘米；
+- `observe_power` 的夜间负值按显式 `dataset.target_floor: 0.0` 截至物理下限；缺失功率不会插值或后向填充，缺少 issue 时刻或任一预测目标的样本会被拒绝。
 
 首次在服务器运行前，使用只读检查脚本验证真实 schema、15 分钟颗粒度、DNI/DHI 覆盖与 PWAT 分位数：
 

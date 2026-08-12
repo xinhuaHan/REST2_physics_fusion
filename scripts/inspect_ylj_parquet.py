@@ -21,32 +21,33 @@ DEFAULT_PARQUET = Path(
 EXPECTED_COLUMNS = (
     "timestamp",
     "observe_power",
-    "GHI_observe",
-    "DNI_observe",
-    "DHI_observe",
-    "TEMP_observe",
-    "WS_observe",
-    "WD_observe",
-    "PREC_observe",
-    "PWAT_observe",
-    "SDWE_observe",
-    "GHI_forecast_1day",
-    "TEMP_forecast_1day",
-    "WS_forecast_1day",
-    "WD_forecast_1day",
-    "PREC_forecast_1day",
-    "PWAT_forecast_1day",
-    "SDWE_forecast_1day",
-    "GHI_forecast_4hour",
-    "TEMP_forecast_4hour",
-    "WS_forecast_4hour",
-    "WD_forecast_4hour",
-    "PREC_forecast_4hour",
-    "PWAT_forecast_4hour",
-    "SDWE_forecast_4hour",
+    "observe_ghi-onsite",
+    "estimated_DNI-onsite",
+    "estimated_DHI-onsite",
+    "GHI-NWP_observe",
+    "TEMP-NWP_observe",
+    "WS-NWP_observe",
+    "WD-NWP_observe",
+    "PREC-NWP_observe",
+    "PWAT-NWP_observe",
+    "SDWE-NWP_observe",
+    "GHI-NWP_forecast_1day",
+    "TEMP-NWP_forecast_1day",
+    "WS-NWP_forecast_1day",
+    "WD-NWP_forecast_1day",
+    "PREC-NWP_forecast_1day",
+    "PWAT-NWP_forecast_1day",
+    "SDWE-NWP_forecast_1day",
+    "GHI-NWP_forecast_4hour",
+    "TEMP-NWP_forecast_4hour",
+    "WS-NWP_forecast_4hour",
+    "WD-NWP_forecast_4hour",
+    "PREC-NWP_forecast_4hour",
+    "PWAT-NWP_forecast_4hour",
+    "SDWE-NWP_forecast_4hour",
 )
-PWAT_COLUMNS = ("PWAT_observe", "PWAT_forecast_1day", "PWAT_forecast_4hour")
-IRRADIANCE_COLUMNS = ("GHI_observe", "DNI_observe", "DHI_observe")
+PWAT_COLUMNS = ("PWAT-NWP_observe", "PWAT-NWP_forecast_1day", "PWAT-NWP_forecast_4hour")
+IRRADIANCE_COLUMNS = ("observe_ghi-onsite", "estimated_DNI-onsite", "estimated_DHI-onsite")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -202,6 +203,13 @@ def inspect(path: Path, expected_step: int, declared_pwat_unit: str, sample_rows
         column: numeric_summary(frame[column])
         for column in inspect_columns if column != "timestamp"
     }
+    if "observe_power" in report["numeric"]:
+        power = report["numeric"]["observe_power"]
+        report["target_quality"] = {
+            "target_floor": 0.0,
+            "negative_values_clipped_to_floor": power["negative_count"],
+            "missing_values_are_not_filled": power["missing"],
+        }
     pwat_summaries = {column: report["numeric"][column] for column in PWAT_COLUMNS if column in frame}
     report["pwat_unit_check"] = infer_pwat_unit(pwat_summaries)
     inference = report["pwat_unit_check"]["inferred_unit"]

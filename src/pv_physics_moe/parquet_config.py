@@ -30,6 +30,8 @@ class ParquetDatasetConfig:
     pwv_column: str | None = None
     pwv_unit: str | None = None
     pwv_to_cm: float | None = None
+    target_floor: float | None = None
+    irradiance_sources: dict[str, str] = field(default_factory=dict)
 
     def validate(self) -> None:
         if not self.serial_columns or len(set(self.serial_columns)) != len(self.serial_columns):
@@ -51,6 +53,18 @@ class ParquetDatasetConfig:
             raise ValueError("dataset.history_points must be positive")
         if self.causal_fill not in {"forward_fill", "none"}:
             raise ValueError("dataset.causal_fill must be forward_fill or none")
+        if self.target_floor is not None and self.target_floor < 0:
+            raise ValueError("dataset.target_floor must be non-negative or null")
+        unknown_sources = set(self.irradiance_sources) - {"ghi", "dni", "dhi"}
+        if unknown_sources:
+            raise ValueError(f"unknown irradiance source keys: {sorted(unknown_sources)}")
+        invalid_sources = {
+            component: source
+            for component, source in self.irradiance_sources.items()
+            if source not in {"observed", "estimated", "derived", "default"}
+        }
+        if invalid_sources:
+            raise ValueError(f"unsupported irradiance source labels: {invalid_sources}")
         if self.pwv_column and (self.pwv_unit is None or self.pwv_to_cm is None):
             raise ValueError(
                 "dataset.pwv_unit and dataset.pwv_to_cm are required before a PWV/PWAT column can be used"

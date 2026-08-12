@@ -159,6 +159,10 @@ class ConfigurableParquetDataset(Dataset):
         split_bounds = config.splits.get(split, development_bounds if split in {"train", "val"} else None)
         allowed_issue = _range_mask(self.times, split_bounds, config.site.timezone)
         targets = pd.to_numeric(self.frame[cfg.target_column], errors="coerce").to_numpy(np.float32)
+        raw_negative_targets = 0
+        if cfg.target_floor is not None:
+            raw_negative_targets = int(np.sum(np.isfinite(targets) & (targets < cfg.target_floor)))
+            targets = np.where(np.isfinite(targets), np.maximum(targets, cfg.target_floor), targets)
         candidates: list[int] = []
         final_offset = self.horizon * self.step_rows
         for issue in np.flatnonzero(allowed_issue):
@@ -167,6 +171,8 @@ class ConfigurableParquetDataset(Dataset):
             if history_start < 0 or target_indices[-1] >= len(self.frame):
                 continue
             if split_bounds and not allowed_issue[target_indices[-1]]:
+                continue
+            if not np.isfinite(targets[issue]):
                 continue
             if not np.isfinite(targets[target_indices]).all():
                 continue
@@ -179,6 +185,7 @@ class ConfigurableParquetDataset(Dataset):
             candidates = candidates[:cut] if split == "train" else candidates[cut:]
         self.issue_indices = candidates
         self.targets = targets
+        self.target_floor_clipped_count = raw_negative_targets
         if normalization is None:
             if split != "train":
                 raise ValueError("validation/test datasets require normalization fitted on training rows")
@@ -200,16 +207,21 @@ class ConfigurableParquetDataset(Dataset):
             "forecast_horizon_minutes": cfg.forecast_horizon_minutes,
             "forecast_steps": self.horizon,
             "normalization": normalization.state_dict(),
+            "target_floor": cfg.target_floor,
+            "target_floor_clipped_count": self.target_floor_clipped_count,
             "physics_sources": self._physics_sources(),
         }
 
-    def _physics_sources(self) -> dict[str, str]:
+    def _physics_sources(self) -> dict[str, Any]:
         cfg = self.config.dataset
         return {
             "solar_geometry": "derived",
             "pressure_pa": "derived_from_msl" if cfg.pressure_column and self.config.site.altitude_m is not None else "default",
             "pwv_cm": "observed_converted" if cfg.pwv_column else "default",
             "pwv_source_unit": cfg.pwv_unit or "not_configured",
+            "irradiance_sources": dict(cfg.irradiance_sources),
+            "target_floor": cfg.target_floor,
+            "target_floor_clipped_count": self.target_floor_clipped_count,
             "aod700": "default",
             "precip": "observed" if cfg.precip_column else "default",
         }

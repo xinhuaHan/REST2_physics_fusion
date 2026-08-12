@@ -8,28 +8,30 @@ dataset:
   target_column: observe_power
   serial_columns:
     - observe_power
-    - GHI_observe
-    - TEMP_observe
-    - WS_observe
-    - WD_observe
-    - PREC_observe
-    - PWAT_observe
-    - SDWE_observe
-    - GHI_forecast_1day
-    - TEMP_forecast_1day
-    - WS_forecast_1day
-    - WD_forecast_1day
-    - PREC_forecast_1day
-    - PWAT_forecast_1day
-    - SDWE_forecast_1day
-    - GHI_forecast_4hour
-    - TEMP_forecast_4hour
-    - WS_forecast_4hour
-    - WD_forecast_4hour
-    - PREC_forecast_4hour
-    - PWAT_forecast_4hour
-    - SDWE_forecast_4hour
-  irradiance_columns: {ghi: GHI_observe, dni: DNI_observe, dhi: DHI_observe}
+    - observe_ghi-onsite
+    - TEMP-NWP_observe
+    - WS-NWP_observe
+    - WD-NWP_observe
+    - PREC-NWP_observe
+    - PWAT-NWP_observe
+    - SDWE-NWP_observe
+    - GHI-NWP_forecast_1day
+    - TEMP-NWP_forecast_1day
+    - WS-NWP_forecast_1day
+    - WD-NWP_forecast_1day
+    - PREC-NWP_forecast_1day
+    - PWAT-NWP_forecast_1day
+    - SDWE-NWP_forecast_1day
+    - GHI-NWP_forecast_4hour
+    - TEMP-NWP_forecast_4hour
+    - WS-NWP_forecast_4hour
+    - WD-NWP_forecast_4hour
+    - PREC-NWP_forecast_4hour
+    - PWAT-NWP_forecast_4hour
+    - SDWE-NWP_forecast_4hour
+  irradiance_columns: {ghi: observe_ghi-onsite, dni: estimated_DNI-onsite, dhi: estimated_DHI-onsite}
+  irradiance_sources: {ghi: observed, dni: estimated, dhi: estimated}
+  target_floor: 0.0  # physically non-negative MW; NaN targets are never filled
   sampling_interval_minutes: 15
   history_points: 16
   forecast_step_minutes: 15
@@ -38,9 +40,9 @@ dataset:
   causal_fill: forward_fill
   pressure_column: null
   pressure_unit: pa
-  wind_columns: [WS_forecast_4hour]
-  precip_column: PREC_forecast_4hour
-  pwv_column: PWAT_observe
+  wind_columns: [WS-NWP_forecast_4hour]
+  precip_column: PREC-NWP_forecast_4hour
+  pwv_column: PWAT-NWP_observe
   pwv_unit: mm
   pwv_to_cm: 0.1  # source PWAT is millimetres; REST2 expects centimetres
 
