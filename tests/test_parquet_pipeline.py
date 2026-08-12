@@ -142,10 +142,22 @@ def test_ylj_inspection_script_reports_schema_cadence_and_mm_pwat(tmp_path: Path
 def test_luoyang_inspection_script_reports_dni_dhi_candidates(tmp_path: Path):
     config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
     frame = synthetic_frame(config, 80, "2026-04-05")
-    frame["DNI_mean_observe"] = 500.0
-    frame["DHI_mean_observe"] = 100.0
-    frame["asi_path"] = [[] for _ in range(len(frame))]
-    frame["asi_path_timestamps"] = [[] for _ in range(len(frame))]
+    frame = frame.rename(columns={
+        "asi_path": "asi_path-onsite", "asi_path_timestamps": "asi_path-onsite-timestamps",
+        "GHI_mean_observe": "GHI-onsite", "msl_forecast": "msl-NWP_forecast",
+        "t2m_forecast": "t2m-NWP_forecast", "u10_forecast": "u10-NWP_forecast",
+        "v10_forecast": "v10-NWP_forecast", "u100_forecast": "u100-NWP_forecast",
+        "v100_forecast": "v100-NWP_forecast", "GHI_mean_forecast": "GHI_mean-NWP_forecast",
+    })
+    timestamps = [[time + pd.Timedelta(minutes=5), time + pd.Timedelta(minutes=10)] for time in frame["timestamp"]]
+    frame["GHI-onsite"] = [[600.0, 650.0] for _ in range(len(frame))]
+    frame["GHI-onsite-timestamps"] = timestamps
+    frame["estimated_DNI-onsite"] = [[500.0, 550.0] for _ in range(len(frame))]
+    frame["estimated_DNI-onsite-timestamps"] = timestamps
+    frame["estimated_DHI-onsite"] = [[100.0, 100.0] for _ in range(len(frame))]
+    frame["estimated_DHI-onsite-timestamps"] = timestamps
+    frame["asi_path-onsite"] = [[] for _ in range(len(frame))]
+    frame["asi_path-onsite-timestamps"] = [[] for _ in range(len(frame))]
     parquet = tmp_path / "Luoyang-Unified_format-V1-with_DNI_DHI.parquet"
     report_path = tmp_path / "inspection.json"
     frame.to_parquet(parquet)
@@ -159,8 +171,10 @@ def test_luoyang_inspection_script_reports_dni_dhi_candidates(tmp_path: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(5.0)
-    assert report["schema"]["irradiance_candidates"]["dni"] == ["DNI_mean_observe"]
-    assert report["schema"]["irradiance_candidates"]["dhi"] == ["DHI_mean_observe"]
+    assert report["schema"]["irradiance_candidates"]["dni"] == ["estimated_DNI-onsite"]
+    assert report["schema"]["irradiance_candidates"]["dhi"] == ["estimated_DHI-onsite"]
+    assert report["numeric"]["estimated_DNI-onsite"]["finite"] == 2 * len(frame)
+    assert report["list_timestamp_alignment"]["estimated_DNI-onsite"]["offset_minutes_minimum"] == 5.0
 
 
 def test_luoyang_parquet_images_offsets_masks_and_48_targets(tmp_path: Path):
