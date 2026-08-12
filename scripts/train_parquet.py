@@ -78,8 +78,12 @@ def main() -> None:
             collate_fn=collate_parquet_batch,
         )
     model = IntegratedPVPhysicsMoE(config.model).to(device)
-    wrapped = DistributedDataParallel(model, device_ids=[device.index]) if world_size > 1 and device.type == "cuda" else (
-        DistributedDataParallel(model) if world_size > 1 else model
+    # Top-k MoE routes each batch to only a subset of experts.  DDP must therefore
+    # tolerate expert parameters that receive no gradient on a given rank/step.
+    wrapped = DistributedDataParallel(
+        model, device_ids=[device.index], find_unused_parameters=True
+    ) if world_size > 1 and device.type == "cuda" else (
+        DistributedDataParallel(model, find_unused_parameters=True) if world_size > 1 else model
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.training.learning_rate, weight_decay=config.training.weight_decay)
     loss_fn = IntegratedLoss(config.training)

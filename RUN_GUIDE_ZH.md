@@ -663,6 +663,8 @@ python scripts/train_parquet.py \
   --output-dir outputs/ylj_parquet_smoke
 
 # 3. 正式 8 卡 V100S DDP 训练
+# train_parquet.py 已为动态 Top-k MoE 启用 DDP find_unused_parameters，
+# 因而每轮未被路由到的专家不会触发梯度归约错误。
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
   --config configs/ylj_parquet.yaml \
@@ -677,4 +679,4 @@ torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
   --split test
 ```
 
-第 1 步必须以退出码 0 完成；该脚本不会修改 Parquet。第 2 步成功后会生成 `outputs/ylj_parquet_smoke/checkpoint_smoke.pt`。正式训练完成后生成 `outputs/ylj_parquet/checkpoint_last.pt`；评测目录包含 `point_predictions.csv` 和 `official_test_metrics.json`。负功率会按配置截断到 0 MW，缺失功率不会被插值或后向填充。
+第 1 步必须以退出码 0 完成；该脚本不会修改 Parquet。第 2 步成功后会生成 `outputs/ylj_parquet_smoke/checkpoint_smoke.pt`。正式训练完成后生成 `outputs/ylj_parquet/checkpoint_last.pt`；评测目录包含 `point_predictions.csv` 和 `official_test_metrics.json`。动态 Top-k MoE 的 DDP 训练已启用 `find_unused_parameters=True`，这是允许每张卡在某一轮未路由到部分专家的必要设置。负功率会按配置截断到 0 MW，缺失功率不会被插值或后向填充。
