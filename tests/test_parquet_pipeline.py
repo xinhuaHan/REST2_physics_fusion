@@ -139,6 +139,30 @@ def test_ylj_inspection_script_reports_schema_cadence_and_mm_pwat(tmp_path: Path
     assert report["pwat_unit_check"]["mm_to_cm_factor"] == pytest.approx(0.1)
 
 
+def test_luoyang_inspection_script_reports_dni_dhi_candidates(tmp_path: Path):
+    config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
+    frame = synthetic_frame(config, 80, "2026-04-05")
+    frame["DNI_mean_observe"] = 500.0
+    frame["DHI_mean_observe"] = 100.0
+    frame["asi_path"] = [[] for _ in range(len(frame))]
+    frame["asi_path_timestamps"] = [[] for _ in range(len(frame))]
+    parquet = tmp_path / "Luoyang-Unified_format-V1-with_DNI_DHI.parquet"
+    report_path = tmp_path / "inspection.json"
+    frame.to_parquet(parquet)
+    result = subprocess.run(
+        [
+            sys.executable, str(ROOT / "scripts" / "inspect_luoyang_parquet.py"),
+            "--parquet", str(parquet), "--output-json", str(report_path),
+        ],
+        cwd=ROOT, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(5.0)
+    assert report["schema"]["irradiance_candidates"]["dni"] == ["DNI_mean_observe"]
+    assert report["schema"]["irradiance_candidates"]["dhi"] == ["DHI_mean_observe"]
+
+
 def test_luoyang_parquet_images_offsets_masks_and_48_targets(tmp_path: Path):
     config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
     frame = synthetic_frame(config, 90, "2026-04-05")

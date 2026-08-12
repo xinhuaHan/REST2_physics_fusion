@@ -30,6 +30,14 @@ python scripts/inspect_ylj_parquet.py \
 
 Luoyang 的 [配置文件](../configs/luoyang_parquet.yaml) 已包含 Parquet、图片路径和 48629.73 容量，但仍需填写经验证的 `site.latitude`、`site.longitude`、`site.altitude_m` 与 `site.timezone`。缺失经纬度或时区时，配置静态解析可以通过，首次构建太阳几何样本会明确失败，不会借用其他站点参数。缺少海拔时不会把 MSL 静默当成站点气压，而使用 `physics_defaults.pressure_pa` 并在 checkpoint metadata 中记录来源为 default。
 
+Luoyang 的新 DNI/DHI 文件先使用只读检查脚本确定精确列名和覆盖率，再写入正式配置：
+
+```bash
+python scripts/inspect_luoyang_parquet.py \
+  --parquet /data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1-with_DNI_DHI.parquet \
+  --output-json outputs/luoyang_parquet_inspection.json
+```
+
 ## 8 卡 V100S DDP
 
 在 Linux 服务器仓库根目录执行：
