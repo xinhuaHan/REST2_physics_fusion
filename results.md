@@ -1,19 +1,9 @@
-(PyTorch-2.1.0) [ma-user REST2_physics_fusion-why]$python scripts/inspect_luoyang_parquet.py \
-  --parquet /data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1-with_DNI_DHI.parquet \
-  --output-json outputs/luoyang_parquet_inspection.json
+(PyTorch-2.1.0) [ma-user REST2_physics_fusion-why]$python scripts/inspect_luoyang_parquet.py   --parquet /data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1-with_DNI_DHI.parquet   --output-json outputs/luoyang_parquet_inspection.json
 {
   "path": "/data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1-with_DNI_DHI.parquet",
   "expected_step_minutes": 5,
   "rated_power": 48629.73,
-  "problems": [
-    "missing required columns: ['asi_path', 'asi_path_timestamps', 'GHI_mean_observe', 'msl_forecast', 't2m_forecast', 'u10_forecast', 'v10_forecast', 'u100_forecast', 'v100_forecast']",
-    "GHI candidate GHI-onsite contains no finite values",
-    "GHI candidate GHI-onsite-timestamps contains no finite values",
-    "DNI candidate estimated_DNI-onsite contains no finite values",
-    "DNI candidate estimated_DNI-onsite-timestamps contains no finite values",
-    "DHI candidate estimated_DHI-onsite contains no finite values",
-    "DHI candidate estimated_DHI-onsite-timestamps contains no finite values"
-  ],
+  "problems": [],
   "file": {
     "size_bytes": 28667787,
     "rows": 122976,
@@ -47,31 +37,18 @@
       "u100-NWP_forecast",
       "v100-NWP_forecast"
     ],
-    "missing_required_columns": [
-      "asi_path",
-      "asi_path_timestamps",
-      "GHI_mean_observe",
-      "msl_forecast",
-      "t2m_forecast",
-      "u10_forecast",
-      "v10_forecast",
-      "u100_forecast",
-      "v100_forecast"
-    ],
+    "missing_required_columns": [],
     "irradiance_candidates": {
       "ghi": [
         "GHI-onsite",
-        "GHI-onsite-timestamps",
         "GHI_mean-NWP_observe",
         "GHI_mean-NWP_forecast"
       ],
       "dni": [
-        "estimated_DNI-onsite",
-        "estimated_DNI-onsite-timestamps"
+        "estimated_DNI-onsite"
       ],
       "dhi": [
-        "estimated_DHI-onsite",
-        "estimated_DHI-onsite-timestamps"
+        "estimated_DHI-onsite"
       ]
     },
     "arrow_types": {
@@ -116,53 +93,28 @@
     ]
   },
   "numeric": {
-    "final_power": {
+    "GHI-onsite": {
+      "container": "list",
       "rows": 122976,
-      "finite": 122976,
-      "missing": 0,
-      "parse_failures": 0,
+      "rows_with_nonempty_list": 122976,
+      "rows_with_finite_value": 19511,
+      "list_length_minimum": 5,
+      "list_length_median": 5.0,
+      "list_length_maximum": 5,
+      "elements": 614880,
+      "finite": 97276,
+      "missing_or_unparseable_elements": 517604,
+      "malformed_rows": 103465,
       "minimum": 0.0,
       "q01": 0.0,
       "q05": 0.0,
-      "median": 95.09285645,
-      "mean": 6274.858471254146,
-      "q95": 29451.5098225,
-      "q99": 35067.942755000004,
-      "maximum": 41667.33252,
+      "median": 30.0,
+      "mean": 223.65051708540642,
+      "q95": 895.0,
+      "q99": 973.2,
+      "maximum": 1199.2,
       "negative_count": 0,
-      "zero_count": 60940
-    },
-    "GHI-onsite": {
-      "rows": 122976,
-      "finite": 0,
-      "missing": 0,
-      "parse_failures": 122976,
-      "minimum": null,
-      "q01": null,
-      "q05": null,
-      "median": null,
-      "mean": null,
-      "q95": null,
-      "q99": null,
-      "maximum": null,
-      "negative_count": 0,
-      "zero_count": 0
-    },
-    "GHI-onsite-timestamps": {
-      "rows": 122976,
-      "finite": 0,
-      "missing": 0,
-      "parse_failures": 122976,
-      "minimum": null,
-      "q01": null,
-      "q05": null,
-      "median": null,
-      "mean": null,
-      "q95": null,
-      "q99": null,
-      "maximum": null,
-      "negative_count": 0,
-      "zero_count": 0
+      "zero_count": 38091
     },
     "GHI_mean-NWP_observe": {
       "rows": 122976,
@@ -197,68 +149,98 @@
       "zero_count": 1215
     },
     "estimated_DNI-onsite": {
+      "container": "list",
       "rows": 122976,
-      "finite": 0,
-      "missing": 0,
-      "parse_failures": 122976,
-      "minimum": null,
-      "q01": null,
-      "q05": null,
-      "median": null,
-      "mean": null,
-      "q95": null,
-      "q99": null,
-      "maximum": null,
+      "rows_with_nonempty_list": 122976,
+      "rows_with_finite_value": 19511,
+      "list_length_minimum": 5,
+      "list_length_median": 5.0,
+      "list_length_maximum": 5,
+      "elements": 614880,
+      "finite": 97276,
+      "missing_or_unparseable_elements": 517604,
+      "malformed_rows": 103465,
+      "minimum": 0.0,
+      "q01": 0.0,
+      "q05": 0.0,
+      "median": 0.0,
+      "mean": 177.08924363943305,
+      "q95": 807.3575074096645,
+      "q99": 899.0756757849249,
+      "maximum": 1037.5600887160779,
       "negative_count": 0,
-      "zero_count": 0
-    },
-    "estimated_DNI-onsite-timestamps": {
-      "rows": 122976,
-      "finite": 0,
-      "missing": 0,
-      "parse_failures": 122976,
-      "minimum": null,
-      "q01": null,
-      "q05": null,
-      "median": null,
-      "mean": null,
-      "q95": null,
-      "q99": null,
-      "maximum": null,
-      "negative_count": 0,
-      "zero_count": 0
+      "zero_count": 54716
     },
     "estimated_DHI-onsite": {
+      "container": "list",
       "rows": 122976,
-      "finite": 0,
-      "missing": 0,
-      "parse_failures": 122976,
-      "minimum": null,
-      "q01": null,
-      "q05": null,
-      "median": null,
-      "mean": null,
-      "q95": null,
-      "q99": null,
-      "maximum": null,
+      "rows_with_nonempty_list": 122976,
+      "rows_with_finite_value": 19511,
+      "list_length_minimum": 5,
+      "list_length_median": 5.0,
+      "list_length_maximum": 5,
+      "elements": 614880,
+      "finite": 97276,
+      "missing_or_unparseable_elements": 517604,
+      "malformed_rows": 103465,
+      "minimum": 0.0,
+      "q01": 0.0,
+      "q05": 0.0,
+      "median": 28.0,
+      "mean": 97.80327184669515,
+      "q95": 376.507768569276,
+      "q99": 444.0433029919428,
+      "maximum": 514.1000891053231,
       "negative_count": 0,
-      "zero_count": 0
+      "zero_count": 38091
     },
-    "estimated_DHI-onsite-timestamps": {
+    "final_power": {
       "rows": 122976,
-      "finite": 0,
+      "finite": 122976,
       "missing": 0,
-      "parse_failures": 122976,
-      "minimum": null,
-      "q01": null,
-      "q05": null,
-      "median": null,
-      "mean": null,
-      "q95": null,
-      "q99": null,
-      "maximum": null,
+      "parse_failures": 0,
+      "minimum": 0.0,
+      "q01": 0.0,
+      "q05": 0.0,
+      "median": 95.09285645,
+      "mean": 6274.858471254146,
+      "q95": 29451.5098225,
+      "q99": 35067.942755000004,
+      "maximum": 41667.33252,
       "negative_count": 0,
-      "zero_count": 0
+      "zero_count": 60940
+    }
+  },
+  "list_timestamp_alignment": {
+    "GHI-onsite": {
+      "timestamp_column": "GHI-onsite-timestamps",
+      "length_mismatch_rows": 0,
+      "timestamp_parse_failures": 0,
+      "timestamp_elements": 614880,
+      "offset_minutes_minimum": -4.0,
+      "offset_minutes_median": -2.0,
+      "offset_minutes_maximum": 0.0,
+      "rows_with_a_timestamp_in_t_plus_5_to_t_plus_240": 0
+    },
+    "estimated_DNI-onsite": {
+      "timestamp_column": "estimated_DNI-onsite-timestamps",
+      "length_mismatch_rows": 0,
+      "timestamp_parse_failures": 0,
+      "timestamp_elements": 614880,
+      "offset_minutes_minimum": -4.0,
+      "offset_minutes_median": -2.0,
+      "offset_minutes_maximum": 0.0,
+      "rows_with_a_timestamp_in_t_plus_5_to_t_plus_240": 0
+    },
+    "estimated_DHI-onsite": {
+      "timestamp_column": "estimated_DHI-onsite-timestamps",
+      "length_mismatch_rows": 0,
+      "timestamp_parse_failures": 0,
+      "timestamp_elements": 614880,
+      "offset_minutes_minimum": -4.0,
+      "offset_minutes_median": -2.0,
+      "offset_minutes_maximum": 0.0,
+      "rows_with_a_timestamp_in_t_plus_5_to_t_plus_240": 0
     }
   },
   "target_quality": {
@@ -276,13 +258,6 @@
         null,
         null
       ],
-      "GHI-onsite-timestamps": [
-        "1970-01-21T04:32:09.360",
-        "1970-01-21T04:32:09.420",
-        "1970-01-21T04:32:09.480",
-        "1970-01-21T04:32:09.540",
-        "1970-01-21T04:32:09.600"
-      ],
       "GHI_mean-NWP_observe": 0.0,
       "GHI_mean-NWP_forecast": 0.27853134,
       "estimated_DNI-onsite": [
@@ -292,19 +267,26 @@
         null,
         null
       ],
-      "estimated_DNI-onsite-timestamps": [
-        "1970-01-21T04:32:09.360",
-        "1970-01-21T04:32:09.420",
-        "1970-01-21T04:32:09.480",
-        "1970-01-21T04:32:09.540",
-        "1970-01-21T04:32:09.600"
-      ],
       "estimated_DHI-onsite": [
         null,
         null,
         null,
         null,
         null
+      ],
+      "GHI-onsite-timestamps": [
+        "1970-01-21T04:32:09.360",
+        "1970-01-21T04:32:09.420",
+        "1970-01-21T04:32:09.480",
+        "1970-01-21T04:32:09.540",
+        "1970-01-21T04:32:09.600"
+      ],
+      "estimated_DNI-onsite-timestamps": [
+        "1970-01-21T04:32:09.360",
+        "1970-01-21T04:32:09.420",
+        "1970-01-21T04:32:09.480",
+        "1970-01-21T04:32:09.540",
+        "1970-01-21T04:32:09.600"
       ],
       "estimated_DHI-onsite-timestamps": [
         "1970-01-21T04:32:09.360",
@@ -324,13 +306,6 @@
         null,
         null
       ],
-      "GHI-onsite-timestamps": [
-        "1970-01-21T04:32:09.660",
-        "1970-01-21T04:32:09.720",
-        "1970-01-21T04:32:09.780",
-        "1970-01-21T04:32:09.840",
-        "1970-01-21T04:32:09.900"
-      ],
       "GHI_mean-NWP_observe": null,
       "GHI_mean-NWP_forecast": 0.280485903,
       "estimated_DNI-onsite": [
@@ -340,19 +315,26 @@
         null,
         null
       ],
-      "estimated_DNI-onsite-timestamps": [
-        "1970-01-21T04:32:09.660",
-        "1970-01-21T04:32:09.720",
-        "1970-01-21T04:32:09.780",
-        "1970-01-21T04:32:09.840",
-        "1970-01-21T04:32:09.900"
-      ],
       "estimated_DHI-onsite": [
         null,
         null,
         null,
         null,
         null
+      ],
+      "GHI-onsite-timestamps": [
+        "1970-01-21T04:32:09.660",
+        "1970-01-21T04:32:09.720",
+        "1970-01-21T04:32:09.780",
+        "1970-01-21T04:32:09.840",
+        "1970-01-21T04:32:09.900"
+      ],
+      "estimated_DNI-onsite-timestamps": [
+        "1970-01-21T04:32:09.660",
+        "1970-01-21T04:32:09.720",
+        "1970-01-21T04:32:09.780",
+        "1970-01-21T04:32:09.840",
+        "1970-01-21T04:32:09.900"
       ],
       "estimated_DHI-onsite-timestamps": [
         "1970-01-21T04:32:09.660",
@@ -372,13 +354,6 @@
         null,
         null
       ],
-      "GHI-onsite-timestamps": [
-        "1970-01-21T04:32:09.960",
-        "1970-01-21T04:32:10.020",
-        "1970-01-21T04:32:10.080",
-        "1970-01-21T04:32:10.140",
-        "1970-01-21T04:32:10.200"
-      ],
       "GHI_mean-NWP_observe": null,
       "GHI_mean-NWP_forecast": 0.282440467,
       "estimated_DNI-onsite": [
@@ -388,19 +363,26 @@
         null,
         null
       ],
-      "estimated_DNI-onsite-timestamps": [
-        "1970-01-21T04:32:09.960",
-        "1970-01-21T04:32:10.020",
-        "1970-01-21T04:32:10.080",
-        "1970-01-21T04:32:10.140",
-        "1970-01-21T04:32:10.200"
-      ],
       "estimated_DHI-onsite": [
         null,
         null,
         null,
         null,
         null
+      ],
+      "GHI-onsite-timestamps": [
+        "1970-01-21T04:32:09.960",
+        "1970-01-21T04:32:10.020",
+        "1970-01-21T04:32:10.080",
+        "1970-01-21T04:32:10.140",
+        "1970-01-21T04:32:10.200"
+      ],
+      "estimated_DNI-onsite-timestamps": [
+        "1970-01-21T04:32:09.960",
+        "1970-01-21T04:32:10.020",
+        "1970-01-21T04:32:10.080",
+        "1970-01-21T04:32:10.140",
+        "1970-01-21T04:32:10.200"
       ],
       "estimated_DHI-onsite-timestamps": [
         "1970-01-21T04:32:09.960",
@@ -420,13 +402,6 @@
         null,
         null
       ],
-      "GHI-onsite-timestamps": [
-        "1970-01-21T04:32:10.260",
-        "1970-01-21T04:32:10.320",
-        "1970-01-21T04:32:10.380",
-        "1970-01-21T04:32:10.440",
-        "1970-01-21T04:32:10.500"
-      ],
       "GHI_mean-NWP_observe": null,
       "GHI_mean-NWP_forecast": 0.28439503,
       "estimated_DNI-onsite": [
@@ -436,19 +411,26 @@
         null,
         null
       ],
-      "estimated_DNI-onsite-timestamps": [
-        "1970-01-21T04:32:10.260",
-        "1970-01-21T04:32:10.320",
-        "1970-01-21T04:32:10.380",
-        "1970-01-21T04:32:10.440",
-        "1970-01-21T04:32:10.500"
-      ],
       "estimated_DHI-onsite": [
         null,
         null,
         null,
         null,
         null
+      ],
+      "GHI-onsite-timestamps": [
+        "1970-01-21T04:32:10.260",
+        "1970-01-21T04:32:10.320",
+        "1970-01-21T04:32:10.380",
+        "1970-01-21T04:32:10.440",
+        "1970-01-21T04:32:10.500"
+      ],
+      "estimated_DNI-onsite-timestamps": [
+        "1970-01-21T04:32:10.260",
+        "1970-01-21T04:32:10.320",
+        "1970-01-21T04:32:10.380",
+        "1970-01-21T04:32:10.440",
+        "1970-01-21T04:32:10.500"
       ],
       "estimated_DHI-onsite-timestamps": [
         "1970-01-21T04:32:10.260",
@@ -468,13 +450,6 @@
         null,
         null
       ],
-      "GHI-onsite-timestamps": [
-        "1970-01-21T04:32:10.560",
-        "1970-01-21T04:32:10.620",
-        "1970-01-21T04:32:10.680",
-        "1970-01-21T04:32:10.740",
-        "1970-01-21T04:32:10.800"
-      ],
       "GHI_mean-NWP_observe": null,
       "GHI_mean-NWP_forecast": 0.286349593,
       "estimated_DNI-onsite": [
@@ -484,19 +459,26 @@
         null,
         null
       ],
-      "estimated_DNI-onsite-timestamps": [
-        "1970-01-21T04:32:10.560",
-        "1970-01-21T04:32:10.620",
-        "1970-01-21T04:32:10.680",
-        "1970-01-21T04:32:10.740",
-        "1970-01-21T04:32:10.800"
-      ],
       "estimated_DHI-onsite": [
         null,
         null,
         null,
         null,
         null
+      ],
+      "GHI-onsite-timestamps": [
+        "1970-01-21T04:32:10.560",
+        "1970-01-21T04:32:10.620",
+        "1970-01-21T04:32:10.680",
+        "1970-01-21T04:32:10.740",
+        "1970-01-21T04:32:10.800"
+      ],
+      "estimated_DNI-onsite-timestamps": [
+        "1970-01-21T04:32:10.560",
+        "1970-01-21T04:32:10.620",
+        "1970-01-21T04:32:10.680",
+        "1970-01-21T04:32:10.740",
+        "1970-01-21T04:32:10.800"
       ],
       "estimated_DHI-onsite-timestamps": [
         "1970-01-21T04:32:10.560",
@@ -507,5 +489,5 @@
       ]
     }
   ],
-  "usable": false
+  "usable": true
 }
