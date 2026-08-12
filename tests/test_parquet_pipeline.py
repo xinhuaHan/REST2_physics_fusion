@@ -243,6 +243,27 @@ def test_irradiance_loss_is_finite_with_no_valid_dni_dhi():
     losses["loss"].backward()
 
 
+def test_integrated_loss_uses_fp32_reduction_for_ylj_scale_targets():
+    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
+    outputs = {
+        "prediction": torch.zeros(2, 16, 1, dtype=torch.float16, requires_grad=True),
+        "irradiance": torch.zeros(2, 16, 3, dtype=torch.float16, requires_grad=True),
+        "raw_irradiance": torch.zeros(2, 16, 3, dtype=torch.float16, requires_grad=True),
+        "clear_sky_prior": torch.full((2, 16, 3), 500.0, dtype=torch.float16),
+        "moe_balance_loss": torch.zeros((), dtype=torch.float16, requires_grad=True),
+    }
+    batch = {
+        "target": torch.full((2, 16, 1), 468.0, dtype=torch.float16),
+        "target_valid_mask": torch.ones(2, 16),
+        "irradiance_target": torch.full((2, 16, 3), 1_000.0, dtype=torch.float16),
+        "irradiance_target_mask": torch.ones(2, 16, 3),
+    }
+    losses = IntegratedLoss(config.training)(outputs, batch)
+    assert losses["loss"].dtype == torch.float32
+    assert torch.isfinite(losses["loss"])
+    losses["loss"].backward()
+
+
 def test_prediction_export_counts_and_metrics_select_horizon_minutes():
     evaluation = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml").evaluation
     batch = {

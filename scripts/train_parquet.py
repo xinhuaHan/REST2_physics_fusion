@@ -101,7 +101,9 @@ def main() -> None:
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp_enabled):
                 outputs = wrapped(batch)
-                losses = loss_fn(outputs, batch)
+            # FP16 overflows for squared errors at YLJ-scale MW/W m^-2 values.
+            # Keep the model forward in AMP, but reduce every loss term in FP32.
+            losses = loss_fn(outputs, batch)
             scaler.scale(losses["loss"]).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
@@ -118,7 +120,8 @@ def main() -> None:
             with torch.no_grad():
                 for batch in val_loader:
                     batch = move_batch(batch, device)
-                    outputs = wrapped(batch)
+                    with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp_enabled):
+                        outputs = wrapped(batch)
                     loss = loss_fn(outputs, batch)["loss"]
                     validation += torch.tensor([float(loss), 1.0], dtype=torch.float64, device=device)
             if world_size > 1:
