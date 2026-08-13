@@ -58,6 +58,26 @@ def configure_synthetic(config, path: Path, start: str, end: str) -> None:
     config.splits = {"train": [start, end], "val": [start, end], "test": [start, end]}
 
 
+def run_inspection(script: str, parquet: Path, report_path: Path, *extra_args: str) -> dict:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / script),
+            "--parquet",
+            str(parquet),
+            "--output-json",
+            str(report_path),
+            *extra_args,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(report_path.read_text(encoding="utf-8"))
+
+
 def test_configs_derive_field_dimensions_and_forecast_steps():
     ylj = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
     luoyang = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
@@ -127,18 +147,9 @@ def test_ylj_inspection_script_reports_schema_cadence_and_mm_pwat(tmp_path: Path
     parquet = tmp_path / "YLJ-Unified_format-with_DNI_DHI.parquet"
     report_path = tmp_path / "inspection.json"
     frame.to_parquet(parquet)
-    result = subprocess.run(
-        [
-            sys.executable, str(ROOT / "scripts" / "inspect_ylj_parquet.py"),
-            "--parquet", str(parquet), "--pwat-unit", "mm", "--output-json", str(report_path),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
+    report = run_inspection(
+        "inspect_ylj_parquet.py", parquet, report_path, "--pwat-unit", "mm"
     )
-    assert result.returncode == 0, result.stdout + result.stderr
-    report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["usable"] is True
     assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(15.0)
     assert report["schema"]["missing_expected_columns"] == []
@@ -166,15 +177,7 @@ def test_luoyang_inspection_script_reports_dni_dhi_candidates(tmp_path: Path):
     parquet = tmp_path / "Luoyang-Unified_format-V1-with_DNI_DHI.parquet"
     report_path = tmp_path / "inspection.json"
     frame.to_parquet(parquet)
-    result = subprocess.run(
-        [
-            sys.executable, str(ROOT / "scripts" / "inspect_luoyang_parquet.py"),
-            "--parquet", str(parquet), "--output-json", str(report_path),
-        ],
-        cwd=ROOT, capture_output=True, text=True, timeout=60,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report = run_inspection("inspect_luoyang_parquet.py", parquet, report_path)
     assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(5.0)
     assert report["schema"]["irradiance_candidates"]["dni"] == ["estimated_DNI-onsite"]
     assert report["schema"]["irradiance_candidates"]["dhi"] == ["estimated_DHI-onsite"]
@@ -228,7 +231,7 @@ def test_luoyang_list_irradiance_matches_timestamp_not_list_position():
     assert torch.equal(sample["irradiance_target_mask"][0], torch.ones(3, dtype=torch.long))
 
 
-def test_rejects_granularity_mismatch_duplicates_and_future_images(tmp_path: Path):
+def test_rejects_bad_timestamps_and_image_metadata(tmp_path: Path):
     config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
     frame = synthetic_frame(config, 40)
     frame.loc[2:, "timestamp"] += pd.Timedelta(minutes=1)
@@ -250,17 +253,16 @@ def test_rejects_granularity_mismatch_duplicates_and_future_images(tmp_path: Pat
     with pytest.raises(ValueError, match="future image"):
         dataset[0]
 
-
-def test_rejects_image_list_length_mismatch(tmp_path: Path):
-    config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
-    frame = synthetic_frame(config, 80, "2026-04-05")
-    frame[config.images.paths_column] = [["a.png", "b.png"] for _ in range(len(frame))]
-    frame[config.images.timestamps_column] = [[time.isoformat()] for time in frame["timestamp"]]
-    configure_synthetic(config, tmp_path / "lists.parquet", "2026-04-05", "2026-04-06")
-    config.images.root = str(tmp_path)
-    dataset = ConfigurableParquetDataset(config, "train", frame=frame)
+    mismatch_frame = synthetic_frame(luoyang, 80, "2026-04-05")
+    mismatch_frame[luoyang.images.paths_column] = [
+        ["a.png", "b.png"] for _ in range(len(mismatch_frame))
+    ]
+    mismatch_frame[luoyang.images.timestamps_column] = [
+        [time.isoformat()] for time in mismatch_frame["timestamp"]
+    ]
+    mismatch_dataset = ConfigurableParquetDataset(luoyang, "train", frame=mismatch_frame)
     with pytest.raises(ValueError, match="length mismatch"):
-        dataset[0]
+        mismatch_dataset[0]
 
 
 def test_training_normalization_never_reads_validation_values():

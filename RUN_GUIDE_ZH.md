@@ -629,37 +629,3 @@ evaluate_station.py（分时距评估）
 ```
 
 模型架构和汇报说明见 `MODEL_ARCHITECTURE_REPORT_ZH.md`，服务器数据对齐细节见 `SERVER_RUN_ZH.md`。
-
----
-
-## 14. Luoyang 最简正式命令（Linux 8 卡）
-
-```bash
-git pull --ff-only origin why
-
-# 1. 数据检验：必须正常退出且输出 "problems": []、"usable": true
-python scripts/inspect_luoyang_parquet.py \
-  --output-json outputs/luoyang_parquet_inspection.json
-
-# 2. 单卡 smoke：正式训练前执行一次
-CUDA_VISIBLE_DEVICES=0 python scripts/train_parquet.py \
-  --config configs/luoyang_parquet.yaml \
-  --smoke \
-  --output-dir outputs/luoyang_parquet_smoke
-
-# 3. 正式 8 卡训练
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
-  --config configs/luoyang_parquet.yaml \
-  --output-dir outputs/luoyang_parquet
-
-# 4. 正式测试集评测
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
-  --config configs/luoyang_parquet.yaml \
-  --checkpoint outputs/luoyang_parquet/checkpoint_last.pt \
-  --output-dir outputs/luoyang_official_test \
-  --split test
-```
-
-正式输出为 `outputs/luoyang_official_test/point_predictions.csv` 和 `official_test_metrics.json`。

@@ -17,60 +17,21 @@ YLJ 的 [配置文件](../configs/ylj_parquet.yaml) 使用：
 - 源 PWAT 列 `PWAT-NWP_observe` 的单位为毫米，乘以 `0.1` 转换为 REST2 使用的厘米；
 - `observe_power` 的夜间负值按显式 `dataset.target_floor: 0.0` 截至物理下限；缺失功率不会插值或后向填充，缺少 issue 时刻或任一预测目标的样本会被拒绝。
 
-首次在服务器运行前，使用只读检查脚本验证真实 schema、15 分钟颗粒度、DNI/DHI 覆盖与 PWAT 分位数：
-
-```bash
-python scripts/inspect_ylj_parquet.py \
-  --parquet /data/PVMMoE/DATA/01-Solar/YLJ/Benchmark/YLJ-Unified_format-with_DNI_DHI.parquet \
-  --pwat-unit mm \
-  --output-json outputs/ylj_parquet_inspection.json
-```
-
-检查不通过时脚本返回非零退出码；不会修改 Parquet，也不会启动训练。
+首次运行前用 `scripts/inspect_ylj_parquet.py` 验证真实 schema、颗粒度、DNI/DHI 覆盖与 PWAT 分位数。检查不通过时脚本返回非零退出码；不会修改 Parquet，也不会启动训练。
 
 Luoyang 的 [配置文件](../configs/luoyang_parquet.yaml) 已使用新文件、图片字段、48629.73 容量及经纬度 `34.700/112.285`、海拔 `220 m`、时区 `Asia/Shanghai`。`msl-NWP_forecast` 会根据海拔换算为站点气压。现场 GHI 与估算 DNI/DHI 均为每行五个分钟值及其时间戳；适配器按时间戳精确匹配每个主时间轴时刻，不使用固定列表下标，也不插值或后向填充。
 
-Luoyang 的新 DNI/DHI 文件先使用只读检查脚本确定精确列名和覆盖率，再写入正式配置：
-
-```bash
-python scripts/inspect_luoyang_parquet.py \
-  --parquet /data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1-with_DNI_DHI.parquet \
-  --output-json outputs/luoyang_parquet_inspection.json
-```
+Luoyang 可用 `scripts/inspect_luoyang_parquet.py` 复核 list 长度、有效值、内部时间戳偏移和字段覆盖率。
 
 ## 8 卡 V100S DDP
 
-在 Linux 服务器仓库根目录执行：
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
-  --config configs/ylj_parquet.yaml
-
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
-  --config configs/luoyang_parquet.yaml
-```
-
 脚本根据 `WORLD_SIZE` 初始化 DDP；当前两个 Parquet 配置均使用 FP32，避免未经归一化的 Pa 量级 REST2 输入在 FP16 中溢出。train/validation 使用 `DistributedSampler`，每个 epoch 调用 `set_epoch`，只由 rank 0 写 checkpoint 和 resolved config。checkpoint 包含字段顺序、训练集归一化、容量、站点信息、数据 schema 和物理量来源。
 
-CPU 单进程 dry-run 可使用 `--smoke`。自动化的 2 进程 CPU/gloo 前向、反向和参数更新检查为：
-
-```bash
-python scripts/ddp_cpu_smoke.py
-```
+CPU/单卡 dry-run 可使用 `--smoke`；2 进程 CPU/gloo 自动检查位于 `scripts/ddp_cpu_smoke.py`。完整运行命令只在根 `README.md` 维护。
 
 ## 分布式推理与输出
 
-```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
-  --config configs/luoyang_parquet.yaml \
-  --checkpoint outputs/luoyang_parquet/checkpoint_last.pt \
-  --output-dir outputs/luoyang_official_test
-```
-
-也可仅通过 `--config configs/ylj_parquet.yaml` 切换到 YLJ，不维护第二套脚本。分布式预测会跨 rank 汇总，按 `issue_time,target_time` 去重并排序，只由 rank 0 原子写文件：
+YLJ/Luoyang 只通过 `--config` 切换，不维护两套脚本。分布式预测会跨 rank 汇总，按 `issue_time,target_time` 去重并排序，只由 rank 0 原子写文件：
 
 - `outputs/.../point_predictions.csv`：固定五列 `issue_time,target_time,horizon_minutes,y_true,y_pred`，数值均为原始功率单位；
 - `outputs/.../official_test_metrics.json`：分别包含 t+15 和 t+240 的 overall、hard-delta、方向准确率、NRMSE/NMAE，以及 PCD 闭合、负辐照度和夜间非零诊断。

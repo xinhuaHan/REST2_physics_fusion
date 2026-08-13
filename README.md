@@ -1,380 +1,109 @@
-# PVMMOE–REST2–PCD 五时距光伏功率预测
+# REST2–PCD–PVMMoE：YLJ / Luoyang Parquet 适配
 
-这是一个可独立运行的双模态光伏预测工程。模型保留 PVMMOE 的跨模态融合和混合专家主干，将 REST2 生成的物理向量作为第二模态，并使用 PCD 在输出端强制满足辐照度物理闭合。
+本分支用一套配置驱动的 Parquet 接口支持 YLJ 与 Luoyang。REST2、PCD 可行域投影、PVMMoE Top-k 专家和功率头的核心数学结构保持不变；主要变更集中在字段映射、时间对齐、可选图像、分布式训练和正式指标导出。
 
-## 1. 模型结构
+## 两个数据集
 
-```text
-历史功率/辐照度/天气序列 ─ Serial Transformer ─┐
-                                                ├─ 双向跨模态注意力
-五时距 REST2 物理向量 ───── Physics Encoder ───┘
-                                                │
-                                       PVMMOE Top-k MoE
-                                                │
-                            ┌───────────────────┴───────────────────┐
-                            │                                       │
-                        功率预测头                         PCD 物理约束解码器
-                            │                                       │
-                   功率 [B,5,1]                    GHI/DNI/DHI [B,5,3]
-```
+| 项目 | YLJ | Luoyang |
+|---|---|---|
+| 配置 | `configs/ylj_parquet.yaml` | `configs/luoyang_parquet.yaml` |
+| 数据文件 | `YLJ-Unified_format-with_DNI_DHI.parquet` | `Luoyang-Unified_format-V1-with_DNI_DHI.parquet` |
+| 原始颗粒度 | 15 min | 5 min |
+| 预测范围 | 未来 240 min | 未来 240 min |
+| 输出 | 16 步，t+15…t+240 | 48 步，t+5…t+240 |
+| 正式评测点 | t+15、t+240 | t+15、t+240 |
+| 容量/NRMSE 分母 | 468 MW | 48629.73（原功率单位） |
+| 图像 | 关闭 | 可选异步天空图像 |
+| 训练精度 | FP32 | FP32 |
 
-PCD 保证：
+输出步数由 `240 / forecast_step_minutes` 校验或推导；正式评测依据导出记录中的 `horizon_minutes` 选择，不使用固定数组下标。
 
-```text
-GHI = max(cos(zenith), 0) × DNI + DHI
-GHI >= 0, DNI >= 0, DHI >= 0
-夜间 GHI = DNI = DHI = 0
-```
+## 适配内容
 
-## 2. 当前实验设置
+### YLJ
 
-| 项目 | 设置 |
-|---|---|
-| 站点 | 100.641°E，29.919°N |
-| 海拔 | 4300 m |
-| 时区 | Asia/Shanghai |
-| 标准气压 | 59,268.17 Pa，按海拔自动换算 |
-| 历史窗口 | 16 × 15 min，即过去 4 h |
-| 预测时距 | 15、30、60、240、1440 min |
-| PWAT | cm，与 Folsom/REST2 约定一致 |
-| 夜间负功率 | 截断为 0 |
+- 读取真实 `-onsite` / `-NWP_` 字段；现场 GHI 和估算 DNI/DHI 用于物理输入与辅助监督。
+- PWAT 按已确认的 mm 转换为 REST2 所需 cm。
+- 功率容量及 NRMSE/NMAE 分母固定为 468 MW。
+- 夜间负功率按显式配置截断至 0；缺失功率不插值、不后向填充。
 
-年份严格隔离：
+### Luoyang
 
-- 2024 年前 85%：训练集；
-- 2024 年后 15%：内部验证集；
-- 训练/验证之间隔离 1440 min，避免 1 d 标签跨越边界；
-- 2025 年：锁定为甲方测试集；
-- 归一化和损失尺度只使用 2024 年训练子集拟合；
-- 2025 年不参与训练、归一化、调参或模型选择。
+- 站点参数为纬度 34.700、经度 112.285、海拔 220 m、时区 Asia/Shanghai。
+- `GHI-onsite`、`estimated_DNI-onsite`、`estimated_DHI-onsite` 是“值列表 + 时间戳列表”；适配器按内部时间戳精确匹配主时间轴，不依赖列表位置。
+- `msl-NWP_forecast` 根据海拔换算站点气压；风速由 `u10/v10-NWP_forecast` 合成。
+- 图像从 `[issue_time-75 min, issue_time]` 选择，拒绝未来图像，缺图由 mask 表示。
 
-配置位于 `configs/server_station.yaml`：
+### 公共训练与评测
 
-```yaml
-experiment:
-  fixed_year_split: true
-  training_years: [2024]
-  holdout_years: [2025]
-  train_fraction_within_training_years: 0.85
-```
+- 同一 `ConfigurableParquetDataset` 返回 serial、REST2、功率、辐照度以及可选图像张量。
+- 动态 Top-k MoE 的 DDP 使用 `find_unused_parameters=True`。
+- 未归一化 REST2 特征含 Pa 量级气压，两个配置使用 FP32，避免 FP16 溢出。
+- checkpoint 保存字段顺序、训练集归一化、容量、站点信息、数据 schema 和物理量来源。
+- 导出 `point_predictions.csv` 与 `official_test_metrics.json`；指标使用原始功率单位及固定容量分母。
 
-## 3. 仓库目录
+## 安装与测试
 
-```text
-PVMMOE_REST2_PCD/
-├─ .gitignore
-├─ .gitattributes
-├─ README.md
-├─ requirements.txt
-├─ pyproject.toml
-├─ configs/
-│  └─ server_station.yaml
-├─ src/
-│  └─ pv_physics_moe/
-│     ├─ config.py
-│     ├─ data/
-│     ├─ models/
-│     ├─ physics/
-│     └─ training/
-├─ scripts/
-│  ├─ check_station_tables.py
-│  ├─ prepare_station_dataset.py
-│  ├─ prepare_station_dataset_all_years.py
-│  ├─ train_station.py
-│  ├─ train_station_core.py
-│  ├─ evaluate_station.py
-│  ├─ run_smoke_tests.py
-│  └─ run_station_smoke_test.py
-├─ tests/
-│  ├─ test_integrated_model.py
-│  └─ test_station_server_pipeline.py
-├─ data/raw/station/.gitkeep
-├─ outputs/.gitkeep
-├─ EXPERIMENT_2024_2025_ZH.md
-├─ MODEL_ARCHITECTURE_REPORT_ZH.md
-└─ RUN_GUIDE_ZH.md
-```
+要求 Python 3.9+，依赖见 `requirements.txt`：
 
-## 4. 安装环境
-
-要求 Python 3.9 或更高版本。
-
-### Windows PowerShell
-
-```powershell
-git clone https://github.com/你的用户名/你的仓库名.git
-Set-Location -LiteralPath ".\你的仓库名"
-
-python -m venv .venv
-Set-ExecutionPolicy -Scope Process Bypass
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+```bash
 pip install -r requirements.txt
+python -m pytest -q
 ```
 
-### Linux 服务器
+## 数据检查
 
 ```bash
-git clone https://github.com/你的用户名/你的仓库名.git
-cd 你的仓库名
+python scripts/inspect_ylj_parquet.py \
+  --output-json outputs/ylj_parquet_inspection.json
 
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+python scripts/inspect_luoyang_parquet.py \
+  --output-json outputs/luoyang_parquet_inspection.json
 ```
 
-检查 PyTorch 和 GPU：
+检查必须正常退出。Luoyang 报告应包含 `"problems": []` 与 `"usable": true`。
+
+## 训练
+
+将下面的 `<dataset>` 替换为 `ylj` 或 `luoyang`：
 
 ```bash
-python -c "import torch; print('torch=', torch.__version__); print('cuda=', torch.cuda.is_available())"
+# 单卡真实数据 smoke
+CUDA_VISIBLE_DEVICES=0 python scripts/train_parquet.py \
+  --config configs/<dataset>_parquet.yaml \
+  --smoke \
+  --output-dir outputs/<dataset>_parquet_smoke
+
+# 正式 8 卡 DDP
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
+  --config configs/<dataset>_parquet.yaml \
+  --output-dir outputs/<dataset>_parquet
 ```
 
-若没有 CUDA，把 `configs/server_station.yaml` 改为：
-
-```yaml
-training:
-  device: cpu
-  num_workers: 0
-```
-
-## 5. 准备数据
-
-真实数据、2025 年甲方评测数据和预处理数组不包含在 GitHub 仓库中。
-
-默认需要将五个文件放入：
-
-```text
-data/raw/station/
-├─ site_power_ghi.csv
-├─ site_irradiance.csv
-├─ forecast_4h.csv
-├─ forecast_1d.csv
-└─ site_weather.csv
-```
-
-支持 CSV 和 `.xlsx`。如果使用其他文件名，请修改 `configs/server_station.yaml`。
-
-### 五表字段
-
-| 文件 | 必需字段 |
-|---|---|
-| `site_power_ghi.csv` | `dtime, observe_power, observe_ghi` |
-| `site_irradiance.csv` | `dtime, observe_ghi, observe_dni, observe_dhi` |
-| `forecast_4h.csv` | `dtime, GHI, TEMP, WS, WD, PREC, PWAT, SDWE, interval` |
-| `forecast_1d.csv` | 同 4 h 预报 |
-| `site_weather.csv` | `dtime, GHI, TEMP, WS, WD, PREC, PWAT, SDWE` |
-
-预报文件建议额外包含：
-
-```text
-report_date, report_time, update_time, govern_flag
-```
-
-关键单位：
-
-- `GHI/DNI/DHI`：W/m²；
-- `PWAT`：cm；
-- `WD`：0～360°；
-- `interval`：分钟；
-- `dtime`：Asia/Shanghai 当地时间；
-- `observe_power`：保持原始功率单位，模型输出使用相同单位。
-
-也可以通过环境变量指定仓库外的数据路径：
-
-Windows：
-
-```powershell
-$env:STATION_DATA_ROOT = "D:\pv_data\station"
-$env:STATION_PROCESSED_DIR = "D:\pv_data\processed"
-```
-
-Linux：
+## 正式评测
 
 ```bash
-export STATION_DATA_ROOT=/data/pv_station/raw
-export STATION_PROCESSED_DIR=/data/pv_station/processed
-```
-
-## 6. 完整运行流程
-
-### 6.1 检查五个文件
-
-```bash
-python scripts/check_station_tables.py --config configs/server_station.yaml
-```
-
-正常结果包含：
-
-```json
-{"ok": true}
-```
-
-### 6.2 预处理和年份隔离
-
-```bash
-python scripts/prepare_station_dataset.py --config configs/server_station.yaml
-```
-
-该命令自动完成：
-
-1. 五张表按 15 min 时间轴对齐；
-2. 生成五个预测时距的 REST2 物理向量；
-3. 对每个时距执行预报发布时间防泄漏检查；
-4. 将 2024 划分为训练/验证；
-5. 将 2025 锁定为测试集；
-6. 只用 2024 训练子集重新计算归一化参数。
-
-已有处理结果时，只重新划分年份：
-
-```bash
-python scripts/prepare_station_dataset.py --config configs/server_station.yaml --resplit-only
-```
-
-处理后检查 `data/processed/station/metadata.json`：
-
-```text
-training_years = [2024]
-holdout_years = [2025]
-normalization_fit_years = [2024]
-client_holdout_locked = true
-train_validation_embargo_minutes = 1440
-```
-
-### 6.3 模型核心测试
-
-```bash
-python scripts/run_smoke_tests.py
-```
-
-预期：
-
-```text
-4 smoke tests passed
-```
-
-### 6.4 五表端到端测试
-
-```bash
-python scripts/run_station_smoke_test.py
-```
-
-该测试使用临时合成数据，不读取或上传真实站点数据。它验证跨年份划分、五时距张量、前向传播、反向传播、PCD 闭合和 checkpoint 保存。
-
-### 6.5 真实数据训练冒烟测试
-
-```bash
-python scripts/train_station.py --config configs/server_station.yaml --smoke
-```
-
-训练入口会先检查：
-
-```text
-year-split audit passed: train/normalization=[2024], client holdout=[2025]
-```
-
-如果使用旧的、可能含 2025 训练数据的处理结果，训练会拒绝启动。
-
-### 6.6 正式训练
-
-```bash
-python scripts/train_station.py --config configs/server_station.yaml
-```
-
-输出：
-
-```text
-outputs/station/checkpoint_last.pt
-outputs/station/config_resolved.json
-```
-
-这些文件已被 `.gitignore` 排除，不会上传 GitHub。
-
-### 6.7 甲方测试集评估
-
-只有在允许查看 2025 年评测结果时才执行：
-
-```bash
-python scripts/evaluate_station.py \
-  --config configs/server_station.yaml \
-  --checkpoint outputs/station/checkpoint_last.pt \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
+  --config configs/<dataset>_parquet.yaml \
+  --checkpoint outputs/<dataset>_parquet/checkpoint_last.pt \
+  --output-dir outputs/<dataset>_official_test \
   --split test
 ```
 
-评估按 15/30/60/240/1440 min 分别输出功率 RMSE、MAE、GHI/DNI/DHI RMSE 和 PCD 最大闭合误差。
+评测输出：
 
-## 7. 张量接口
+- `point_predictions.csv`：`issue_time,target_time,horizon_minutes,y_true,y_pred`；
+- `official_test_metrics.json`：t+15/t+240 的 overall、hard-delta、方向准确率、NRMSE/NMAE，以及 PCD 诊断。
 
-| 张量 | 单样本形状 | 批量形状 |
-|---|---|---|
-| 历史序列 | `[16,13]` | `[B,16,13]` |
-| REST2 物理模态 | `[5,26]` | `[B,5,26]` |
-| 功率标签/输出 | `[5,1]` | `[B,5,1]` |
-| GHI/DNI/DHI | `[5,3]` | `[B,5,3]` |
-| 五时距天顶角 | `[5]` | `[B,5]` |
+## 关键文件
 
-## 8. 上传 GitHub
+- `src/pv_physics_moe/data/parquet_dataset.py`：统一 Parquet、时间戳 list 和图像适配。
+- `src/pv_physics_moe/parquet_config.py`：两数据集配置与预测步数校验。
+- `scripts/train_parquet.py`：单卡/8 卡训练。
+- `scripts/evaluate_parquet.py`：分布式评测与导出。
+- `src/pv_physics_moe/evaluation.py`：按 `horizon_minutes` 计算正式指标。
+- `docs/PARQUET_PIPELINE_ZH.md`：数据契约与实现细节。
 
-### 方法 A：Git 命令行
-
-在本项目根目录执行：
-
-```bash
-git init
-git add .
-git status
-git commit -m "Initial release: PVMMOE REST2 PCD five-horizon model"
-git branch -M main
-git remote add origin https://github.com/你的用户名/你的仓库名.git
-git push -u origin main
-```
-
-在执行 `git commit` 前，必须检查 `git status`，确认没有以下文件：
-
-- 真实 CSV/XLSX；
-- 2025 年甲方评测数据；
-- `data/processed/`；
-- `.venv/`；
-- `outputs/` 中的权重；
-- `.pt/.pth/.ckpt`；
-- 密码、令牌或服务器绝对路径。
-
-### 方法 B：GitHub 网页上传
-
-1. 在 GitHub 创建空仓库；
-2. 不要让 GitHub 自动添加另一个 README 或 `.gitignore`；
-3. 打开 `Add file → Upload files`；
-4. 上传本目录中的全部文件和文件夹；
-5. 再次确认没有真实数据、2025 数据、权重和 `.venv`；
-6. 填写提交说明并提交。
-
-推荐使用 Git 命令行，因为 `.gitignore` 能自动阻止敏感和大文件进入提交。
-
-## 9. 上传前检查
-
-Windows PowerShell：
-
-```powershell
-git status --short
-git check-ignore -v data\raw\station\你的真实数据.csv
-git check-ignore -v outputs\station\checkpoint_last.pt
-```
-
-真实数据和权重应显示被 `.gitignore` 命中。
-
-完整人工检查清单见 [`GITHUB_UPLOAD_CHECKLIST_ZH.md`](GITHUB_UPLOAD_CHECKLIST_ZH.md)。
-
-## 10. 文档
-
-- [`RUN_GUIDE_ZH.md`](RUN_GUIDE_ZH.md)：完整环境、数据和运行说明；
-- [`EXPERIMENT_2024_2025_ZH.md`](EXPERIMENT_2024_2025_ZH.md)：年份隔离与审计依据；
-- [`MODEL_ARCHITECTURE_REPORT_ZH.md`](MODEL_ARCHITECTURE_REPORT_ZH.md)：模型汇报材料。
-
-## 11. 说明
-
-仓库当前未自动附加开源许可证。若计划公开开源，请在确认代码和数据授权后再选择并添加合适的 `LICENSE`；如果仅用于私有协作，可直接创建 Private repository。
-
-# YLJ / Luoyang Parquet pipeline
-
-The configuration-driven Parquet training, DDP evaluation, image handling, and
-official horizon rules are documented in [docs/PARQUET_PIPELINE_ZH.md](docs/PARQUET_PIPELINE_ZH.md).
+真实 Parquet、图像、checkpoint、日志和评测输出不会提交到仓库。
