@@ -7,7 +7,7 @@
 - 两个数据集的正式指标都通过导出记录的 `horizon_minutes` 选择 15 和 240 分钟，不使用数组下标。
 - 配置步长必须能实际产生 t+15 和 t+240；真实 Parquet 的连续时间间隔必须与 `sampling_interval_minutes` 一致，否则数据集会报告期望和实际间隔并停止。目标不会插值、后向填充或伪造。
 
-## 训练前必须补齐的配置
+## 数据配置
 
 YLJ 的 [配置文件](../configs/ylj_parquet.yaml) 使用：
 
@@ -17,7 +17,7 @@ YLJ 的 [配置文件](../configs/ylj_parquet.yaml) 使用：
 - 源 PWAT 列 `PWAT-NWP_observe` 的单位为毫米，乘以 `0.1` 转换为 REST2 使用的厘米；
 - `observe_power` 的夜间负值按显式 `dataset.target_floor: 0.0` 截至物理下限；缺失功率不会插值或后向填充，缺少 issue 时刻或任一预测目标的样本会被拒绝。
 
-首次运行前用 `scripts/inspect_ylj_parquet.py` 验证真实 schema、颗粒度、DNI/DHI 覆盖与 PWAT 分位数。检查不通过时脚本返回非零退出码；不会修改 Parquet，也不会启动训练。
+`scripts/inspect_ylj_parquet.py` 验证 schema、颗粒度、DNI/DHI 覆盖与 PWAT 分位数。检查不通过时返回非零退出码。
 
 Luoyang 的 [配置文件](../configs/luoyang_parquet.yaml) 已使用新文件、图片字段、48629.73 容量及经纬度 `34.700/112.285`、海拔 `220 m`、时区 `Asia/Shanghai`。`msl-NWP_forecast` 会根据海拔换算为站点气压。现场 GHI 与估算 DNI/DHI 均为每行五个分钟值及其时间戳；适配器按时间戳精确匹配每个主时间轴时刻，不使用固定列表下标，也不插值或后向填充。
 
@@ -26,8 +26,6 @@ Luoyang 可用 `scripts/inspect_luoyang_parquet.py` 复核 list 长度、有效�
 ## 8 卡 V100S DDP
 
 脚本根据 `WORLD_SIZE` 初始化 DDP；当前两个 Parquet 配置均使用 FP32，避免未经归一化的 Pa 量级 REST2 输入在 FP16 中溢出。train/validation 使用 `DistributedSampler`，每个 epoch 调用 `set_epoch`，只由 rank 0 写 checkpoint 和 resolved config。checkpoint 包含字段顺序、训练集归一化、容量、站点信息、数据 schema 和物理量来源。
-
-CPU/单卡 dry-run 可使用 `--smoke`；2 进程 CPU/gloo 自动检查位于 `scripts/ddp_cpu_smoke.py`。完整运行命令只在根 `README.md` 维护。
 
 ## 分布式推理与输出
 

@@ -1,6 +1,6 @@
-# REST2–PCD–PVMMoE：YLJ / Luoyang Parquet 适配
+# REST2–PCD–PVMMoE 光伏功率预测
 
-本分支用一套配置驱动的 Parquet 接口支持 YLJ 与 Luoyang。REST2、PCD 可行域投影、PVMMoE Top-k 专家和功率头的核心数学结构保持不变；主要变更集中在字段映射、时间对齐、可选图像、分布式训练和正式指标导出。
+系统通过统一的配置驱动 Parquet 接口支持 YLJ 与 Luoyang，包含 REST2 物理特征、PCD 可行域投影、PVMMoE Top-k 专家、可选图像模态、分布式训练和正式指标导出。
 
 ## 两个数据集
 
@@ -18,7 +18,7 @@
 
 输出步数由 `240 / forecast_step_minutes` 校验或推导；正式评测依据导出记录中的 `horizon_minutes` 选择，不使用固定数组下标。
 
-## 适配内容
+## 数据接口
 
 ### YLJ
 
@@ -42,13 +42,12 @@
 - checkpoint 保存字段顺序、训练集归一化、容量、站点信息、数据 schema 和物理量来源。
 - 导出 `point_predictions.csv` 与 `official_test_metrics.json`；指标使用原始功率单位及固定容量分母。
 
-## 安装与测试
+## 安装
 
 要求 Python 3.9+，依赖见 `requirements.txt`：
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q
 ```
 
 ## 数据检查
@@ -61,20 +60,13 @@ python scripts/inspect_luoyang_parquet.py \
   --output-json outputs/luoyang_parquet_inspection.json
 ```
 
-检查必须正常退出。Luoyang 报告应包含 `"problems": []` 与 `"usable": true`。
+检查程序返回零退出码后才可训练。Luoyang 报告应包含 `"problems": []` 与 `"usable": true`。
 
 ## 训练
 
 将下面的 `<dataset>` 替换为 `ylj` 或 `luoyang`：
 
 ```bash
-# 单卡真实数据 smoke
-CUDA_VISIBLE_DEVICES=0 python scripts/train_parquet.py \
-  --config configs/<dataset>_parquet.yaml \
-  --smoke \
-  --output-dir outputs/<dataset>_parquet_smoke
-
-# 正式 8 卡 DDP
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
   --config configs/<dataset>_parquet.yaml \
