@@ -18,6 +18,7 @@ class ParquetDatasetConfig:
     serial_columns: list[str]
     irradiance_columns: dict[str, str | None]
     sampling_interval_minutes: int
+    list_timestamp_columns: dict[str, str] = field(default_factory=dict)
     history_points: int = 16
     forecast_step_minutes: int = 15
     forecast_steps: int | None = None
@@ -55,6 +56,16 @@ class ParquetDatasetConfig:
             raise ValueError("dataset.causal_fill must be forward_fill or none")
         if self.target_floor is not None and self.target_floor < 0:
             raise ValueError("dataset.target_floor must be non-negative or null")
+        unknown_list_columns = set(self.list_timestamp_columns) - {
+            column for column in self.irradiance_columns.values() if column
+        }
+        if unknown_list_columns:
+            raise ValueError(
+                "dataset.list_timestamp_columns keys must be configured irradiance columns: "
+                f"{sorted(unknown_list_columns)}"
+            )
+        if any(not timestamp_column for timestamp_column in self.list_timestamp_columns.values()):
+            raise ValueError("dataset.list_timestamp_columns values must be non-empty")
         unknown_sources = set(self.irradiance_sources) - {"ghi", "dni", "dhi"}
         if unknown_sources:
             raise ValueError(f"unknown irradiance source keys: {sorted(unknown_sources)}")

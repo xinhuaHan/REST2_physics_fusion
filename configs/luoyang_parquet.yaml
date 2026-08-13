@@ -3,38 +3,40 @@ project:
 
 dataset:
   name: Luoyang
-  parquet_file: /data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1.parquet
+  parquet_file: /data/PVMMoE/DATA/01-Solar/Luoyang-XS/Benchmark_V1/Luoyang-Unified_format-V1-with_DNI_DHI.parquet
   timestamp_column: timestamp
   target_column: final_power
-  serial_columns: [final_power, GHI_mean_observe, GHI_mean_forecast, msl_forecast, t2m_forecast, u10_forecast, v10_forecast, u100_forecast, v100_forecast]
-  irradiance_columns: {ghi: GHI_mean_observe, dni: null, dhi: null}
+  serial_columns: [final_power, GHI_mean-NWP_observe, GHI_mean-NWP_forecast, msl-NWP_forecast, t2m-NWP_forecast, u10-NWP_forecast, v10-NWP_forecast, u100-NWP_forecast, v100-NWP_forecast]
+  irradiance_columns: {ghi: GHI-onsite, dni: estimated_DNI-onsite, dhi: estimated_DHI-onsite}
+  list_timestamp_columns: {GHI-onsite: GHI-onsite-timestamps, estimated_DNI-onsite: estimated_DNI-onsite-timestamps, estimated_DHI-onsite: estimated_DHI-onsite-timestamps}
+  irradiance_sources: {ghi: observed, dni: estimated, dhi: estimated}
   sampling_interval_minutes: 5
   history_points: 16
   forecast_step_minutes: 5
   forecast_steps: 48
   forecast_horizon_minutes: 240
   causal_fill: forward_fill
-  pressure_column: msl_forecast
+  pressure_column: msl-NWP_forecast
   pressure_unit: pa
-  wind_columns: [u10_forecast, v10_forecast]
+  wind_columns: [u10-NWP_forecast, v10-NWP_forecast]
   precip_column: null
   pwv_column: null
   pwv_unit: null
   pwv_to_cm: null
 
 site:
-  latitude: null  # TODO: fill verified Luoyang site latitude before dataset construction
-  longitude: null # TODO: fill verified Luoyang site longitude before dataset construction
-  altitude_m: null # TODO: enables MSL-to-station pressure conversion
-  timezone: null   # TODO: fill the source timestamp timezone
+  latitude: 34.700
+  longitude: 112.285
+  altitude_m: 220.0
+  timezone: Asia/Shanghai
 
 physics_defaults: {pressure_pa: 101325.0, pwv_cm: 1.5, aod700: 0.08, precip: 0.0}
 
 images:
   enabled: true
   root: /home/ma-user/work/john/IMAGE/Luoyang/Luoyang_EKO_ASI_resized_64
-  paths_column: asi_path
-  timestamps_column: asi_path_timestamps
+  paths_column: asi_path-onsite
+  timestamps_column: asi_path-onsite-timestamps
   max_frames: 16
   channels: 3
   size: 64
@@ -55,7 +57,7 @@ splits:
   validation_fraction: 0.15
   test: ["2026-05-11 00:00:00", "2026-06-12 00:00:00"]
 
-runtime: {distributed: true, gpu_devices: "0,1,2,3,4,5,6,7", precision: fp16, num_workers: 4, pin_memory: true}
+runtime: {distributed: true, gpu_devices: "0,1,2,3,4,5,6,7", precision: fp32, num_workers: 4, pin_memory: true}
 
 model:
   physics_input_dim: 26

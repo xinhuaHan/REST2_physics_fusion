@@ -28,7 +28,7 @@ python scripts/inspect_ylj_parquet.py \
 
 检查不通过时脚本返回非零退出码；不会修改 Parquet，也不会启动训练。
 
-Luoyang 的 [配置文件](../configs/luoyang_parquet.yaml) 已包含 Parquet、图片路径和 48629.73 容量，但仍需填写经验证的 `site.latitude`、`site.longitude`、`site.altitude_m` 与 `site.timezone`。缺失经纬度或时区时，配置静态解析可以通过，首次构建太阳几何样本会明确失败，不会借用其他站点参数。缺少海拔时不会把 MSL 静默当成站点气压，而使用 `physics_defaults.pressure_pa` 并在 checkpoint metadata 中记录来源为 default。
+Luoyang 的 [配置文件](../configs/luoyang_parquet.yaml) 已使用新文件、图片字段、48629.73 容量及经纬度 `34.700/112.285`、海拔 `220 m`、时区 `Asia/Shanghai`。`msl-NWP_forecast` 会根据海拔换算为站点气压。现场 GHI 与估算 DNI/DHI 均为每行五个分钟值及其时间戳；适配器按时间戳精确匹配每个主时间轴时刻，不使用固定列表下标，也不插值或后向填充。
 
 Luoyang 的新 DNI/DHI 文件先使用只读检查脚本确定精确列名和覆盖率，再写入正式配置：
 
@@ -52,7 +52,7 @@ torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
   --config configs/luoyang_parquet.yaml
 ```
 
-脚本根据 `WORLD_SIZE` 初始化 DDP；V100 使用 FP16 autocast 与 GradScaler，不启用 BF16。train/validation 使用 `DistributedSampler`，每个 epoch 调用 `set_epoch`，只由 rank 0 写 checkpoint 和 resolved config。checkpoint 包含字段顺序、训练集归一化、容量、站点信息、数据 schema 和物理量来源。
+脚本根据 `WORLD_SIZE` 初始化 DDP；当前两个 Parquet 配置均使用 FP32，避免未经归一化的 Pa 量级 REST2 输入在 FP16 中溢出。train/validation 使用 `DistributedSampler`，每个 epoch 调用 `set_epoch`，只由 rank 0 写 checkpoint 和 resolved config。checkpoint 包含字段顺序、训练集归一化、容量、站点信息、数据 schema 和物理量来源。
 
 CPU 单进程 dry-run 可使用 `--smoke`。自动化的 2 进程 CPU/gloo 前向、反向和参数更新检查为：
 
@@ -81,4 +81,4 @@ torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
 
 YLJ 默认关闭图像，不创建图像编码器。Luoyang 从 `[issue_time-75min, issue_time]` 读取相对 `images.root` 的异步图片，排序去重，超过 16 张均匀抽取，不足部分补零并用 mask 标记。未来图片、重复图片时间戳和路径/时间列表长度不一致都会报错；图片文件缺失则保留零 mask，不影响 serial/physics 权重。
 
-DNI/DHI 配置为 null 时，其 target mask 为 0；整个 batch 没有有效辐照度标签时辅助损失为同设备有限零标量。以后只需在配置的 `irradiance_columns` 中填写列名即可启用相应监督。
+Luoyang 的 `GHI-onsite`、`estimated_DNI-onsite`、`estimated_DHI-onsite` 已启用辅助监督；list 中当前主时间轴时刻缺值时，其对应 target mask 为 0。整个 batch 没有有效辐照度标签时，辅助损失为同设备有限零标量。

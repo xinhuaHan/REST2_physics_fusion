@@ -30,7 +30,16 @@ def synthetic_frame(config, rows: int, start: str = "2024-01-01") -> pd.DataFram
     data[cfg.target_column] = np.arange(rows, dtype=np.float32) + 10
     for column in cfg.irradiance_columns.values():
         if column:
-            data[column] = np.maximum(0, np.sin(np.arange(rows) / 10.0) * 500).astype(np.float32)
+            values = np.maximum(0, np.sin(np.arange(rows) / 10.0) * 500).astype(np.float32)
+            timestamp_column = cfg.list_timestamp_columns.get(column)
+            if timestamp_column:
+                data[column] = [[float(value)] * 5 for value in values]
+                data[timestamp_column] = [
+                    [time - pd.Timedelta(minutes=offset) for offset in range(4, -1, -1)]
+                    for time in times
+                ]
+            else:
+                data[column] = values
     if cfg.name == "YLJ":
         data["GHI-NWP_observe"] = np.arange(rows, dtype=np.float32) + 1
     if cfg.pressure_column:
@@ -144,10 +153,6 @@ def test_luoyang_inspection_script_reports_dni_dhi_candidates(tmp_path: Path):
     frame = synthetic_frame(config, 80, "2026-04-05")
     frame = frame.rename(columns={
         "asi_path": "asi_path-onsite", "asi_path_timestamps": "asi_path-onsite-timestamps",
-        "GHI_mean_observe": "GHI-onsite", "msl_forecast": "msl-NWP_forecast",
-        "t2m_forecast": "t2m-NWP_forecast", "u10_forecast": "u10-NWP_forecast",
-        "v10_forecast": "v10-NWP_forecast", "u100_forecast": "u100-NWP_forecast",
-        "v100_forecast": "v100-NWP_forecast", "GHI_mean_forecast": "GHI_mean-NWP_forecast",
     })
     timestamps = [[time + pd.Timedelta(minutes=5), time + pd.Timedelta(minutes=10)] for time in frame["timestamp"]]
     frame["GHI-onsite"] = [[600.0, 650.0] for _ in range(len(frame))]
@@ -187,8 +192,8 @@ def test_luoyang_parquet_images_offsets_masks_and_48_targets(tmp_path: Path):
     for time in frame["timestamp"]:
         paths.append(["sky.png", "missing.png"])
         stamps.append([(time - pd.Timedelta(minutes=10)).isoformat(), time.isoformat()])
-    frame["asi_path"] = paths
-    frame["asi_path_timestamps"] = stamps
+    frame[config.images.paths_column] = paths
+    frame[config.images.timestamps_column] = stamps
     path = tmp_path / "luoyang.parquet"
     frame.to_parquet(path)
     configure_synthetic(config, path, "2026-04-05", "2026-04-06")
@@ -200,6 +205,27 @@ def test_luoyang_parquet_images_offsets_masks_and_48_targets(tmp_path: Path):
     assert sample["image_valid_mask"].sum() == 1
     assert -75 <= float(sample["image_time_offsets"][0]) <= 0
     assert pd.Timestamp(sample["target_times"][-1]) - pd.Timestamp(sample["issue_time"]) == pd.Timedelta(minutes=240)
+
+
+def test_luoyang_list_irradiance_matches_timestamp_not_list_position():
+    config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
+    frame = synthetic_frame(config, 90, "2026-04-05")
+    frame[config.images.paths_column] = [[] for _ in range(len(frame))]
+    frame[config.images.timestamps_column] = [[] for _ in range(len(frame))]
+    first_future_row = config.dataset.history_points
+    target_time = frame.loc[first_future_row, "timestamp"]
+    for component, expected in (("ghi", 601.0), ("dni", 501.0), ("dhi", 101.0)):
+        column = config.dataset.irradiance_columns[component]
+        timestamp_column = config.dataset.list_timestamp_columns[column]
+        frame.at[first_future_row, column] = [expected, -999.0]
+        frame.at[first_future_row, timestamp_column] = [
+            target_time, target_time - pd.Timedelta(minutes=1)
+        ]
+    config.splits = {"train": ["2026-04-05", "2026-04-06"]}
+    dataset = ConfigurableParquetDataset(config, "train", frame=frame)
+    sample = dataset[0]
+    assert torch.equal(sample["irradiance_target"][0], torch.tensor([601.0, 501.0, 101.0]))
+    assert torch.equal(sample["irradiance_target_mask"][0], torch.ones(3, dtype=torch.long))
 
 
 def test_rejects_granularity_mismatch_duplicates_and_future_images(tmp_path: Path):
@@ -216,8 +242,8 @@ def test_rejects_granularity_mismatch_duplicates_and_future_images(tmp_path: Pat
 
     luoyang = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
     image_frame = synthetic_frame(luoyang, 80, "2026-04-05")
-    image_frame["asi_path"] = [["x.png"] for _ in range(len(image_frame))]
-    image_frame["asi_path_timestamps"] = [[(time + pd.Timedelta(minutes=1)).isoformat()] for time in image_frame["timestamp"]]
+    image_frame[luoyang.images.paths_column] = [["x.png"] for _ in range(len(image_frame))]
+    image_frame[luoyang.images.timestamps_column] = [[(time + pd.Timedelta(minutes=1)).isoformat()] for time in image_frame["timestamp"]]
     configure_synthetic(luoyang, tmp_path / "future.parquet", "2026-04-05", "2026-04-06")
     luoyang.images.root = str(tmp_path)
     dataset = ConfigurableParquetDataset(luoyang, "train", frame=image_frame)
@@ -228,8 +254,8 @@ def test_rejects_granularity_mismatch_duplicates_and_future_images(tmp_path: Pat
 def test_rejects_image_list_length_mismatch(tmp_path: Path):
     config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
     frame = synthetic_frame(config, 80, "2026-04-05")
-    frame["asi_path"] = [["a.png", "b.png"] for _ in range(len(frame))]
-    frame["asi_path_timestamps"] = [[time.isoformat()] for time in frame["timestamp"]]
+    frame[config.images.paths_column] = [["a.png", "b.png"] for _ in range(len(frame))]
+    frame[config.images.timestamps_column] = [[time.isoformat()] for time in frame["timestamp"]]
     configure_synthetic(config, tmp_path / "lists.parquet", "2026-04-05", "2026-04-06")
     config.images.root = str(tmp_path)
     dataset = ConfigurableParquetDataset(config, "train", frame=frame)

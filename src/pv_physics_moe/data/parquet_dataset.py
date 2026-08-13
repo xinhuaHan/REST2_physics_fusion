@@ -111,6 +111,9 @@ class ConfigurableParquetDataset(Dataset):
         for value in cfg.irradiance_columns.values():
             if value:
                 required.add(value)
+                timestamp_column = cfg.list_timestamp_columns.get(value)
+                if timestamp_column:
+                    required.add(timestamp_column)
         if config.images.enabled:
             required.update((config.images.paths_column, config.images.timestamps_column))
         missing = sorted(str(name) for name in required if name not in self.frame.columns)
@@ -232,6 +235,28 @@ class ConfigurableParquetDataset(Dataset):
     def _future_indices(self, issue: int) -> np.ndarray:
         return issue + np.arange(1, self.horizon + 1) * self.step_rows
 
+    def _column_value_at_time(self, row: int, column: str, target_time: pd.Timestamp) -> float:
+        """Read a scalar column or exactly match a timestamped list element."""
+        cfg = self.config.dataset
+        timestamp_column = cfg.list_timestamp_columns.get(column)
+        if not timestamp_column:
+            return float(pd.to_numeric(self.frame.loc[row, column], errors="coerce"))
+        values = _parse_list(self.frame.loc[row, column], column)
+        timestamps = _parse_list(self.frame.loc[row, timestamp_column], timestamp_column)
+        if len(values) != len(timestamps):
+            raise ValueError(
+                f"{column}/{timestamp_column} list length mismatch at row {row}: "
+                f"{len(values)} != {len(timestamps)}"
+            )
+        target = _timestamp(target_time, self.config.site.timezone)
+        matches = [
+            value for value, stamp in zip(values, timestamps)
+            if _timestamp(stamp, self.config.site.timezone) == target
+        ]
+        if len(matches) > 1:
+            raise ValueError(f"{column} has duplicate values for timestamp {target.isoformat()} at row {row}")
+        return float(pd.to_numeric(matches[0], errors="coerce")) if matches else float("nan")
+
     def _physics(self, issue: int, future: np.ndarray) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         self.config.site.require_solar_geometry()
         cfg, defaults = self.config.dataset, self.config.physics_defaults
@@ -244,7 +269,9 @@ class ConfigurableParquetDataset(Dataset):
         mu0 = torch.from_numpy(geometry["mu0"].to_numpy(np.float32)).view(1, -1)
         dni_extra = torch.from_numpy(geometry["dni_extra"].to_numpy(np.float32)).view(1, -1)
         ghi_column = cfg.irradiance_columns.get("ghi")
-        input_ghi = float(pd.to_numeric(self.frame.loc[issue, ghi_column], errors="coerce")) if ghi_column else 0.0
+        input_ghi = (
+            self._column_value_at_time(issue, ghi_column, self.times.iloc[issue]) if ghi_column else 0.0
+        )
         if not np.isfinite(input_ghi):
             input_ghi = 0.0
         pressure = float(defaults.pressure_pa)
@@ -345,7 +372,10 @@ class ConfigurableParquetDataset(Dataset):
         for component, slot in (("ghi", 0), ("dni", 1), ("dhi", 2)):
             column = cfg.irradiance_columns.get(component)
             if column:
-                values = pd.to_numeric(self.frame.loc[future, column], errors="coerce").to_numpy(np.float32)
+                values = np.asarray(
+                    [self._column_value_at_time(int(row), column, self.times.iloc[row]) for row in future],
+                    dtype=np.float32,
+                )
                 valid = np.isfinite(values)
                 irr[valid, slot] = values[valid]
                 irr_mask[valid, slot] = 1
