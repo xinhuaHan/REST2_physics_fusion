@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data import DataLoader, DistributedSampler, Subset
+from torch.utils.data import DataLoader, DistributedSampler
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -41,25 +41,19 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--parquet-file", help="Override dataset.parquet_file")
     parser.add_argument("--output-dir", help="Override training.output_dir")
-    parser.add_argument("--smoke", action="store_true", help="One epoch over at most four real/synthetic configured samples")
     args = parser.parse_args()
     config = load_parquet_config(args.config)
     if args.parquet_file:
         config.dataset.parquet_file = args.parquet_file
     if args.output_dir:
         config.training.output_dir = args.output_dir
-    if args.smoke:
-        config.training.epochs = 1
-        config.training.batch_size = 2
-        config.runtime.num_workers = 0
     rank, world_size, device = setup_distributed(config.training.device)
     torch.manual_seed(config.project.seed + rank)
     datasets = build_parquet_datasets(config)
     train_base = datasets["train"]
-    train_data = Subset(train_base, range(min(4, len(train_base)))) if args.smoke else train_base
-    train_sampler = DistributedSampler(train_data, shuffle=True) if world_size > 1 else None
+    train_sampler = DistributedSampler(train_base, shuffle=True) if world_size > 1 else None
     train_loader = DataLoader(
-        train_data,
+        train_base,
         batch_size=config.training.batch_size,
         sampler=train_sampler,
         shuffle=train_sampler is None,
@@ -145,7 +139,7 @@ def main() -> None:
             "site": config.to_dict()["site"],
             "data_schema": train_base.metadata,
         }
-        checkpoint = output_dir / ("checkpoint_smoke.pt" if args.smoke else "checkpoint_last.pt")
+        checkpoint = output_dir / "checkpoint_last.pt"
         torch.save({"model": model.state_dict(), **metadata}, checkpoint)
         with (output_dir / "config_resolved.json").open("w", encoding="utf-8") as handle:
             json.dump(config.to_dict(), handle, ensure_ascii=False, indent=2)

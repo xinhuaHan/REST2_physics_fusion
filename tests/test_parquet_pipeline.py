@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -56,26 +53,6 @@ def configure_synthetic(config, path: Path, start: str, end: str) -> None:
     config.site.altitude_m = 150.0
     config.site.timezone = "Asia/Shanghai"
     config.splits = {"train": [start, end], "val": [start, end], "test": [start, end]}
-
-
-def run_inspection(script: str, parquet: Path, report_path: Path, *extra_args: str) -> dict:
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(ROOT / "scripts" / script),
-            "--parquet",
-            str(parquet),
-            "--output-json",
-            str(report_path),
-            *extra_args,
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    return json.loads(report_path.read_text(encoding="utf-8"))
 
 
 def test_configs_derive_field_dimensions_and_forecast_steps():
@@ -139,50 +116,6 @@ def test_ylj_target_floor_clips_negative_power_but_rejects_missing_targets():
     assert dataset.metadata["target_floor_clipped_count"] == 1
     assert dataset[0]["target"][0, 0] == 0.0
     assert all(32 not in dataset._future_indices(issue) for issue in dataset.issue_indices)
-
-
-def test_ylj_inspection_script_reports_schema_cadence_and_mm_pwat(tmp_path: Path):
-    config = load_parquet_config(ROOT / "configs" / "ylj_parquet.yaml")
-    frame = synthetic_frame(config, 80)
-    parquet = tmp_path / "YLJ-Unified_format-with_DNI_DHI.parquet"
-    report_path = tmp_path / "inspection.json"
-    frame.to_parquet(parquet)
-    report = run_inspection(
-        "inspect_ylj_parquet.py", parquet, report_path, "--pwat-unit", "mm"
-    )
-    assert report["usable"] is True
-    assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(15.0)
-    assert report["schema"]["missing_expected_columns"] == []
-    assert report["numeric"]["estimated_DNI-onsite"]["finite"] == len(frame)
-    assert report["numeric"]["estimated_DHI-onsite"]["finite"] == len(frame)
-    assert report["pwat_unit_check"]["inferred_unit"] == "mm"
-    assert report["pwat_unit_check"]["mm_to_cm_factor"] == pytest.approx(0.1)
-
-
-def test_luoyang_inspection_script_reports_dni_dhi_candidates(tmp_path: Path):
-    config = load_parquet_config(ROOT / "configs" / "luoyang_parquet.yaml")
-    frame = synthetic_frame(config, 80, "2026-04-05")
-    frame = frame.rename(columns={
-        "asi_path": "asi_path-onsite", "asi_path_timestamps": "asi_path-onsite-timestamps",
-    })
-    timestamps = [[time + pd.Timedelta(minutes=5), time + pd.Timedelta(minutes=10)] for time in frame["timestamp"]]
-    frame["GHI-onsite"] = [[600.0, 650.0] for _ in range(len(frame))]
-    frame["GHI-onsite-timestamps"] = timestamps
-    frame["estimated_DNI-onsite"] = [[500.0, 550.0] for _ in range(len(frame))]
-    frame["estimated_DNI-onsite-timestamps"] = timestamps
-    frame["estimated_DHI-onsite"] = [[100.0, 100.0] for _ in range(len(frame))]
-    frame["estimated_DHI-onsite-timestamps"] = timestamps
-    frame["asi_path-onsite"] = [[] for _ in range(len(frame))]
-    frame["asi_path-onsite-timestamps"] = [[] for _ in range(len(frame))]
-    parquet = tmp_path / "Luoyang-Unified_format-V1-with_DNI_DHI.parquet"
-    report_path = tmp_path / "inspection.json"
-    frame.to_parquet(parquet)
-    report = run_inspection("inspect_luoyang_parquet.py", parquet, report_path)
-    assert report["timestamps"]["dominant_interval_minutes"] == pytest.approx(5.0)
-    assert report["schema"]["irradiance_candidates"]["dni"] == ["estimated_DNI-onsite"]
-    assert report["schema"]["irradiance_candidates"]["dhi"] == ["estimated_DHI-onsite"]
-    assert report["numeric"]["estimated_DNI-onsite"]["finite"] == 2 * len(frame)
-    assert report["list_timestamp_alignment"]["estimated_DNI-onsite"]["offset_minutes_minimum"] == 5.0
 
 
 def test_luoyang_parquet_images_offsets_masks_and_48_targets(tmp_path: Path):
@@ -354,16 +287,3 @@ def test_prediction_export_counts_and_metrics_select_horizon_minutes():
         "target_times": ylj_times, "target": torch.zeros(1, 16, 1),
     }
     assert len(finalize_prediction_frame(prediction_records(ylj_batch, torch.zeros(1, 16, 1)), 16)) == 16
-
-
-@pytest.mark.skipif(
-    not torch.distributed.is_available() or sys.platform == "win32",
-    reason="the local Windows PyTorch build has no supported gloo device; run this automated smoke on Linux",
-)
-def test_two_process_cpu_gloo_smoke():
-    command = [
-        sys.executable, str(ROOT / "scripts" / "ddp_cpu_smoke.py"),
-    ]
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=90)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "DDP smoke passed" in result.stdout

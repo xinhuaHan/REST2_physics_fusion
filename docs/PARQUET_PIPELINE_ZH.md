@@ -17,11 +17,7 @@ YLJ 的 [配置文件](../configs/ylj_parquet.yaml) 使用：
 - 源 PWAT 列 `PWAT-NWP_observe` 的单位为毫米，乘以 `0.1` 转换为 REST2 使用的厘米；
 - `observe_power` 的夜间负值按显式 `dataset.target_floor: 0.0` 截至物理下限；缺失功率不会插值或后向填充，缺少 issue 时刻或任一预测目标的样本会被拒绝。
 
-`scripts/inspect_ylj_parquet.py` 验证 schema、颗粒度、DNI/DHI 覆盖与 PWAT 分位数。检查不通过时返回非零退出码。
-
 Luoyang 的 [配置文件](../configs/luoyang_parquet.yaml) 已使用新文件、图片字段、48629.73 容量及经纬度 `34.700/112.285`、海拔 `220 m`、时区 `Asia/Shanghai`。`msl-NWP_forecast` 会根据海拔换算为站点气压。现场 GHI 与估算 DNI/DHI 均为每行五个分钟值及其时间戳；适配器按时间戳精确匹配每个主时间轴时刻，不使用固定列表下标，也不插值或后向填充。
-
-Luoyang 可用 `scripts/inspect_luoyang_parquet.py` 复核 list 长度、有效值、内部时间戳偏移和字段覆盖率。
 
 ## 8 卡 V100S DDP
 

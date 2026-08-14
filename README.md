@@ -50,37 +50,49 @@
 pip install -r requirements.txt
 ```
 
-## 数据检查
-
-```bash
-python scripts/inspect_ylj_parquet.py \
-  --output-json outputs/ylj_parquet_inspection.json
-
-python scripts/inspect_luoyang_parquet.py \
-  --output-json outputs/luoyang_parquet_inspection.json
-```
-
-检查程序返回零退出码后才可训练。Luoyang 报告应包含 `"problems": []` 与 `"usable": true`。
-
 ## 训练
 
-将下面的 `<dataset>` 替换为 `ylj` 或 `luoyang`：
+YLJ：
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
-  --config configs/<dataset>_parquet.yaml \
-  --output-dir outputs/<dataset>_parquet
+  --config configs/ylj_parquet.yaml \
+  --output-dir outputs/ylj_parquet
 ```
 
+Luoyang：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+torchrun --standalone --nproc_per_node=8 scripts/train_parquet.py \
+  --config configs/luoyang_parquet.yaml \
+  --output-dir outputs/luoyang_parquet
+```
+
+数据集在加载时直接校验字段、颗粒度、时间戳和目标完整性，校验失败会终止训练。
+
 ## 正式评测
+
+YLJ：
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
-  --config configs/<dataset>_parquet.yaml \
-  --checkpoint outputs/<dataset>_parquet/checkpoint_last.pt \
-  --output-dir outputs/<dataset>_official_test \
+  --config configs/ylj_parquet.yaml \
+  --checkpoint outputs/ylj_parquet/checkpoint_last.pt \
+  --output-dir outputs/ylj_official_test \
+  --split test
+```
+
+Luoyang：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+torchrun --standalone --nproc_per_node=8 scripts/evaluate_parquet.py \
+  --config configs/luoyang_parquet.yaml \
+  --checkpoint outputs/luoyang_parquet/checkpoint_last.pt \
+  --output-dir outputs/luoyang_official_test \
   --split test
 ```
 
